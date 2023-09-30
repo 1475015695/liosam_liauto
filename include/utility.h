@@ -153,6 +153,7 @@ public:
 
 
     //liauto param
+    string laneletFilePath;
     int relocationKeyMapSize;
     float scanToMapGap;
     float turnScale;
@@ -184,8 +185,8 @@ public:
     float obstacleMarkerLifetime;
     float obstacleMarkerAlpha;
     float followPointScale;
-
     float miniDistance;
+    
 
     ParamServer()
     {
@@ -282,6 +283,7 @@ public:
         nh.param<float>("lio_sam/globalMapVisualizationLeafSize", globalMapVisualizationLeafSize, 1.0);
 
         //liauto
+        nh.param<std::string>("liauto/laneletFilePath", laneletFilePath, "/Downloads/LOAM/");
         nh.param<int>("liauto/relocationKeyMapSize",relocationKeyMapSize,50);
         nh.param<float>("liauto/scanToMapGap",scanToMapGap,0.1);
         nh.param<float>("liauto/turnScale",turnScale,1.0);
@@ -329,6 +331,7 @@ public:
 
         nh.param<float>("liauto/followPointScale",followPointScale,0.2);
         nh.param<float>("liauto/miniDistance",miniDistance,15);
+
         usleep(100);
     }
 

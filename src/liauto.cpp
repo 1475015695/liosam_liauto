@@ -96,7 +96,7 @@ public:
     float transformTobeMapped[6]={0,0,0,0,0,0};//rpyxyz
     bool initialDone=false;
 
-    string keyMapDir="/home/limy/roscode/map(copy)/keyMap/";
+    string keyMapDir=savePCDDirectory+"keyMap/";
     vector<string> keyMapFiles;
     vector<pair<pcl::PointCloud<pcl::PointXYZ>,pcl::PointCloud<pcl::PointXYZ>>> keyMap;
     vector<pair<pcl::KdTreeFLANN<pcl::PointXYZ>,pcl::KdTreeFLANN<pcl::PointXYZ>>> keyMapKdtree;
@@ -177,7 +177,7 @@ public:
             relocation();
             if(!initialDone)
             {
-                cout<<"Relocation failed, please move around the map rode. "<<endl;
+                ROS_INFO("\033[1;37;41m----> %s\033[0m","Relocation failed, please move around the map rode");
             }
         }
 
@@ -262,15 +262,15 @@ public:
     }
     void readkeyMap()
     {
-        pcl::io::loadPCDFile("/home/limy/roscode/map(copy)/trajectory.pcd",*trajPoint);
-        cout<<"trajectory num: "<<trajPoint->points.size()<<endl;
+        pcl::io::loadPCDFile("/home"+savePCDDirectory+"trajectory.pcd",*trajPoint);
+        ROS_INFO("\033[33;40;1m----> trajectory num:%d\033[0m",trajPoint->points.size());
         kdtreeTrajPoint->setInputCloud(trajPoint);
 
 
-        DIR* dir=opendir(keyMapDir.c_str());
+        DIR* dir=opendir(("/home"+keyMapDir).c_str());
         if(dir==nullptr)
         {
-            cout<<"failed to open keyMapDir "<<keyMapDir<<endl;
+            ROS_INFO("\033[1;37;41m----> Failed to open keyMapDir:%s\033[0m",keyMapDir);
             return ;
         }
         dirent* entry=readdir(dir);
@@ -284,12 +284,7 @@ public:
         }
         sort(keyMapFiles.begin(),keyMapFiles.end());
         sort(keyMapFiles.begin(),keyMapFiles.end(),customerSort);
-        cout<<"total keyMap num: "<<keyMapFiles.size()/2-1<<endl;
-        // if((keyMapFiles.size()/2-1)!=trajPoint->points.size())
-        // {
-        //     cout<<"trajectory not match keyMap!"<<endl;
-        //     return ;
-        // }
+        cout<<"\033[Amtotal keyMap num: \033[0m"<<keyMapFiles.size()/2-1<<endl;
         closedir(dir);
         pcl::PointCloud<pcl::PointXYZ> tempCloud;
         pair<pcl::PointCloud<pcl::PointXYZ>,pcl::PointCloud<pcl::PointXYZ>> tempPair;
@@ -300,26 +295,24 @@ public:
         {
             
 
-            pcl::io::loadPCDFile(keyMapDir+keyMapFiles[i],tempCloud);
+            pcl::io::loadPCDFile("/home"+keyMapDir+keyMapFiles[i],tempCloud);
             tempPair.first=tempCloud;
             // tempKd.setInputCloud(tempCloud.makeShared());
             // tempKdPair.first=tempKd;
 
 
-            pcl::io::loadPCDFile(keyMapDir+keyMapFiles[i+keymapSize+1],tempCloud);
+            pcl::io::loadPCDFile("/home"+keyMapDir+keyMapFiles[i+keymapSize+1],tempCloud);
             tempPair.second=tempCloud;
             // tempKd.setInputCloud(tempCloud.makeShared());
             // tempKdPair.second=tempKd;
 
             keyMap.push_back(tempPair);
-            // keyMapKdtree.push_back(tempKdPair);
-            // cout<<keyMapFiles[i]<<"->"<<keyMapFiles[i+keymapSize+1]<<endl;
 
             
             
         }
 
-        cout<<"key Map loaded! "<<endl;
+        cout<<"\033[Amkey Map loaded! \033[0m"<<endl;
 
     }
     
@@ -373,7 +366,7 @@ public:
             // Print the elapsed time
             if(elapsed.count()>100)
             {
-                std::cout << "Elapsed time over 100 ms !: " << elapsed.count() << " milliseconds" << std::endl;
+                ROS_INFO("\033[33;40;1m----> Frame time over 100 ms !\033[0m");
             }
             
             // 更新当前帧位姿的roll, pitch, z坐标；因为是小车，roll、pitch是相对稳定的，不会有很大变动，一定程度上可以信赖imu的数据，z是进行高度约束
@@ -386,7 +379,6 @@ public:
             //把下面imu的当前变换也更新下
             lastImuPreTransformation=trans2Affine3f(transformTobeMapped);
             timeLaserInfoLast=timeLaserInfoCur;
-            // cout<<"xyzrpy:"<<transformTobeMapped[3]<<" "<<transformTobeMapped[4]<<" "<<transformTobeMapped[5]<<" "<<transformTobeMapped[0]<<" "<<transformTobeMapped[1]<<" "<<transformTobeMapped[2]<<endl;
             publishOdom();//imu 预积分需要这个
 
 
@@ -398,7 +390,6 @@ public:
             // 当前帧的初始估计位姿（来自imu里程计），后面用来计算增量位姿变换
             Eigen::Affine3f transBack = pcl::getTransformation(cloudInfo.initialGuessX,    cloudInfo.initialGuessY,     cloudInfo.initialGuessZ, 
                                                                cloudInfo.initialGuessRoll, cloudInfo.initialGuessPitch, cloudInfo.initialGuessYaw);
-            // cout<<"initGassXYZ:"<<cloudInfo.initialGuessX<<" "<<cloudInfo.initialGuessY<<" "<<cloudInfo.initialGuessZ<<" "<<endl;
             // 当前帧相对于前一帧的位姿变换，imu里程计计算得到
             Eigen::Affine3f transIncre = lastImuPreTransformation.inverse() * transBack;
             // 前一帧的位姿
@@ -421,6 +412,7 @@ public:
             curPose.pose.pose.position.z = transformTobeMapped[5];
             curPose.pose.pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]);
             pubPose.publish(curPose);
+            printf("\033[0;32;40mCurrent pose in 2D x:%6f,y:%6f \033[0m  \r\n ",transformTobeMapped[3],transformTobeMapped[4]);
         }
         
         
@@ -455,7 +447,6 @@ public:
     //原始GPS数据，没经过滤波
     void OriGpsHandler(const sensor_msgs::NavSatFix::ConstPtr& gpsMsg)
     {
-        // cout<<"gps revieve"<<endl;
         //只用在重定位中
         if(initialDone)
         {
@@ -492,10 +483,9 @@ public:
 
     void loadCloudMap()
     {
-
-        cout<<"loading cloud map, this may take a long time. "<<endl;
+        ROS_INFO("\033[1;32m----> loading cloud map, this may take a long time.\033[0m");
         pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud(new pcl::PointCloud<pcl::PointXYZ>());
-        pcl::io::loadPCDFile("/home/limy/roscode/map(copy)/CornerMap.pcd",*tempCloud);
+        pcl::io::loadPCDFile("/home"+savePCDDirectory+"CornerMap.pcd",*tempCloud);
         downSizeFilterCorner.setInputCloud(tempCloud);
         downSizeFilterCorner.filter(*laserCloudCornerFromMap);
 
@@ -512,20 +502,19 @@ public:
 
         tempCloud->clear();
         
-        pcl::io::loadPCDFile("/home/limy/roscode/map(copy)/SurfMap.pcd",*tempCloud);
-        cout<<"befor downsize num :"<<tempCloud->points.size();
+        pcl::io::loadPCDFile("/home"+savePCDDirectory+"SurfMap.pcd",*tempCloud);
         downSizeFilterSurf.setInputCloud(tempCloud);
         downSizeFilterSurf.filter(*laserCloudSurfFromMap);
-        cout<<" after downsize num :"<<laserCloudSurfFromMap->points.size()<<endl;
 
 
 
-        pcl::io::loadPCDFile("/home/limy/roscode/map(copy)/trajectory.pcd",*trajPoint);
+        pcl::io::loadPCDFile("/home"+savePCDDirectory+"trajectory.pcd",*trajPoint);
 
         kdtreeTrajPoint->setInputCloud(trajPoint);
         kdtreeCornerFromMap->setInputCloud(laserCloudCornerFromMap);
         kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMap);
-        cout<<"map loaded. "<<endl;
+        cout<<"\033[Ammap loaded. \033[0m"<<endl;
+        
     }
     static bool centerLaneComp(lanelet::Lanelet& l1,lanelet::Lanelet& l2)
     {
@@ -535,7 +524,7 @@ public:
     {
     // loading a map requires two things: the path and either an origin or a projector that does the lat/lon->x/y
     // conversion.
-    std::string exampleMapPath =  "/home/limy/roscode/map(copy)/new_lanelet2_maps.osm";
+    std::string exampleMapPath =  "/home"+laneletFilePath;
         // we will go into details later
     // projection::SphericalMercatorProjector
     LaneletMapPtr map = load(exampleMapPath, projector);
@@ -603,7 +592,7 @@ public:
     sort(laneLetVector.begin(),laneLetVector.end(),centerLaneComp);
     for(int i=0;i<laneLetVector.size();i++)
     {
-        printf("laneLetVector[i].uniqueId():%6d\r\n",laneLetVector[i].id());
+        // printf("laneLetVector[i].uniqueId():%6d\r\n",laneLetVector[i].id());
         auto centerLane=laneLetVector[i].centerline2d();
         pcl::PointXY tempP;
         
@@ -616,7 +605,7 @@ public:
             // printf("id:%6d,x:%6f,y:%6f\r\n",centerLaneP.id(),tempP.x,tempP.y);
         }
     }
-    cout<<"total center lane Points: "<<centerLanePoints.points.size()<<endl;
+    cout<<"\033[Amtotal center lane Points: \033[0m"<<centerLanePoints.points.size()<<endl;
     sensor_msgs::PointCloud2 tempCloudMag;
     pcl::toROSMsg(centerLanePoints, tempCloudMag);
     tempCloudMag.header.stamp = ros::Time::now();
@@ -720,16 +709,16 @@ public:
 
 
 
-        cout<<"Start ICP !"<<endl;
+        cout<<"\033[AmStart ICP !\033[0m"<<endl;
         icp.align (*matchResult);
-        std::cout << "ICP has converged:" << icp.hasConverged ()
-                    << " score: " << icp.getFitnessScore () << std::endl;
+        std::cout << "\033[AmICP has converged:\033[0m" << icp.hasConverged ()
+                    << " \033[Amscore: \033[0m" << icp.getFitnessScore () << std::endl;
         score=icp.getFitnessScore();
         
         Eigen::Matrix4f transformation = icp.getFinalTransformation ();
         Eigen::Isometry3f isoM(transformation);
         Eigen::Vector3f eulerAngle=(isoM.rotation()).eulerAngles(0,1,2);//以r p y 的顺序返回
-        cout<<"r p y:"<<eulerAngle.transpose()/M_PI*180<<endl;
+        cout<<"r p y:\033[0m"<<eulerAngle.transpose()/M_PI*180<<endl;
         transform[3]=transformation(0,3);
         transform[4]=transformation(1,3);
         transform[5]=transformation(2,3);
@@ -751,15 +740,15 @@ public:
         ndt.setInputTarget(target);
         // Align the source cloud to the target cloud using NDT
         ndt.align(*matchResult);
-        cout<<"start ndt !"<<endl;
-        std::cout << "NDT has converged:" << ndt.hasConverged ()
-                    << " score: " << ndt.getFitnessScore () << std::endl;
+        cout<<"\033[Amstart ndt !\033[0m"<<endl;
+        std::cout << "\033[AmNDT has converged:\033[0m" << ndt.hasConverged ()
+                    << " \033[Amscore: \033[0m" << ndt.getFitnessScore () << std::endl;
         score=ndt.getFitnessScore();
         
         Eigen::Matrix4f transformation = ndt.getFinalTransformation ();
         Eigen::Isometry3f isoM(transformation);
         Eigen::Vector3f eulerAngle=(isoM.rotation()).eulerAngles(0,1,2);//以r p y 的顺序返回
-        cout<<"r p y:"<<eulerAngle.transpose()<<endl;
+        cout<<"\033[Amr p y:\033[0m"<<eulerAngle.transpose()<<endl;
         transform[3]=transformation(0,3);
         transform[4]=transformation(1,3);
         transform[5]=transformation(2,3);
@@ -782,16 +771,16 @@ public:
 
 
 
-        cout<<"start gicp !"<<endl;
+        cout<<"\033[Amstart gicp !\033[0m"<<endl;
         gicp.align (*matchResult);
-        std::cout << "gicp has converged:" << gicp.hasConverged ()
-                    << " score: " << gicp.getFitnessScore () << std::endl;
+        std::cout << "\033[Amgicp has converged:\033[0m" << gicp.hasConverged ()
+                    << "\033[Am score: \033[0m" << gicp.getFitnessScore () << std::endl;
         score=gicp.getFitnessScore();
         
         Eigen::Matrix4f transformation = gicp.getFinalTransformation ();
         Eigen::Isometry3f isoM(transformation);
         Eigen::Vector3f eulerAngle=(isoM.rotation()).eulerAngles(0,1,2);//以r p y 的顺序返回
-        cout<<"r p y:"<<eulerAngle.transpose()/M_PI*180<<endl;
+        cout<<"\033[Amr p y:\033[0m"<<eulerAngle.transpose()/M_PI*180<<endl;
         transform[3]=transformation(0,3);
         transform[4]=transformation(1,3);
         transform[5]=transformation(2,3);
@@ -804,26 +793,28 @@ public:
     {
         while(!gpsVaild)
         {
-            cout<<"current GPS signal bad. "<<"GPS position_covariance: "<<oriGpsPoseConv<<endl;
+            cout<<"\033[33;40;1mcurrent GPS signal bad. "<<"GPS position_covariance: \033[0m"<<oriGpsPoseConv<<endl;
             ros::Duration(0.5).sleep();
             ros::spinOnce();
         }
-        cout<<"GPS valid"<<endl;
+        cout<<"\033[AmGPS valid\033[0m"<<endl;
         //找到离当前gps点最近的轨迹点，把点云变换到该轨迹，再提取该轨迹附近50m的点云地图，和当前扫描做icp配准
         //由于有高度差，先找离GPS点最近的点云点，以这个点找子地图。
         std::vector<int> searchIndex;
         std::vector<float> searchDistance;
         kdtreeTrajPoint->nearestKSearch(currGpsPoint,1,searchIndex,searchDistance);
         pcl::PointXYZ nearestP=trajPoint->points[searchIndex[0]];
-        cout<<"current GPS point: "<<currGpsPoint<<", nearest traj point: "<<nearestP<<endl;
+        cout<<"\033[Amcurrent GPS point: \033[0m"<<currGpsPoint<<"\033[Am, nearest traj point: \033[0m"<<nearestP<<endl;
+
 
         while(laserCloudCornerLast->size()==0)
         {
-            cout<<"no lidar scan"<<endl;
+            cout<<"\033[33;40;1mno lidar scan\033[0m"<<endl;
             ros::Duration(0.5).sleep();
             ros::spinOnce();
         }
-        cout<<"lidar scan ok"<<endl;
+        cout<<"\033[Amlidar scan ok\033[0m"<<endl;
+
         pcl::PointCloud<pcl::PointXYZ>::Ptr initScan(new pcl::PointCloud<pcl::PointXYZ>());
         for(size_t i=0;i<laserCloudCornerLast->points.size();i++)
         {
@@ -925,7 +916,7 @@ public:
         {
             transformTobeMapped[k]=eachTrans[min_idx][k];
         }
-        cout<<"transformTobeMaped:(rpyxyz)"<<endl;
+        cout<<"\033[AmtransformTobeMaped:(rpyxyz)\033[0m"<<endl;
         for(int i=0;i<3;i++)
         {
             printf(" %6f ",transformTobeMapped[i]/M_PI*180.0);
@@ -1392,17 +1383,6 @@ int main(int argc, char** argv)
     ROS_INFO("\033[1;32m----> LiAuto Started.\033[0m");
 
     ros::spin();
-    // ofstream outfile("/home/limy/roscode/paperData/transformDelay_trajTrack.txt");
-    // if (outfile.is_open()) {
-    //     for (int i = 0; i < transformDelay.size(); i++) {
-    //         outfile << transformDelay[i] << endl;
-    //     }
-    //     outfile.close();
-    //     cout << "Data transformDelay written to file." << endl;
-    // }
-    // else {
-    //     cout << "Unable to open file." << endl;
-    // }
 
 
   return 0;

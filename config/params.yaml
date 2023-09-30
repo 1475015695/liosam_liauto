@@ -42,7 +42,7 @@ lio_sam:
   
   # Export settings
   savePCD: true                              # https://github.com/TixiaoShan/LIO-SAM/issues/3
-  savePCDDirectory: "/roscode/map/"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
+  savePCDDirectory: "/limy/roscode/map_copy/"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
 
   # Sensor Settings
   N_SCAN: 16                                  # number of lidar channel (i.e., 16, 32, 64, 128)
@@ -102,6 +102,7 @@ lio_sam:
   globalMapVisualizationLeafSize: 1.0           # meters, global map visualization cloud density
 
 liauto:
+  laneletFilePath: "/limy/roscode/map_copy/new_lanelet2_maps.osm"              # 道路地图文件
   relocationKeyMapSize: 20                      # 重定位时搜索离当前GPS点最近的关键帧个数
   icpSetMaxCorrespondenceDistance: 100000          # 重定位ICP算法中匹配点间的最大距离（真是值除以四，因为雷达缩小了4倍）
   icpSetTransformationEpsilon: 1.0e-6           # 当转换矩阵的变化小于此阈值时，ICP算法的迭代过程将终止。
@@ -144,7 +145,6 @@ liauto:
   obstacleMarkerAlpha: 0.5
   obstacleMarkerLifetime: 0.2
   
-
   followPointScale: 0.5                         # 跟随点的可视化大小  
   #paper data
   miniDistance: 10                              #红绿灯路口vt>miniDistance才通过

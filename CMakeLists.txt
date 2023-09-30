@@ -123,20 +123,20 @@ target_link_libraries(${PROJECT_NAME}_liauto ${catkin_LIBRARIES} ${PCL_LIBRARIES
 # target_link_libraries(${PROJECT_NAME}_drive ${catkin_LIBRARIES} ${PCL_LIBRARIES})
 
 #stdmessage
-add_library(std_message src/std_message.cpp)
+# add_library(std_message src/std_message.cpp)
 # #usbcan
 # add_executable(${PROJECT_NAME}_usbcan src/usbcan.cpp)
 # add_dependencies(${PROJECT_NAME}_usbcan ${catkin_EXPORTED_TARGETS})
 # target_link_libraries(${PROJECT_NAME}_usbcan ${catkin_LIBRARIES} ${PCL_LIBRARIES} std_message)
 #tcp
-add_executable(${PROJECT_NAME}_tcp src/tcp.cpp)
-add_dependencies(${PROJECT_NAME}_tcp ${catkin_EXPORTED_TARGETS})
-target_link_libraries(${PROJECT_NAME}_tcp ${catkin_LIBRARIES} ${PCL_LIBRARIES} std_message)
+# add_executable(${PROJECT_NAME}_tcp src/tcp.cpp)
+# add_dependencies(${PROJECT_NAME}_tcp ${catkin_EXPORTED_TARGETS})
+# target_link_libraries(${PROJECT_NAME}_tcp ${catkin_LIBRARIES} ${PCL_LIBRARIES} std_message)
 
 #ttlControl
-add_executable(${PROJECT_NAME}_ttlControl src/ttlControl.cpp)
-add_dependencies(${PROJECT_NAME}_ttlControl ${catkin_EXPORTED_TARGETS})
-target_link_libraries(${PROJECT_NAME}_ttlControl ${catkin_LIBRARIES} ${PCL_LIBRARIES} std_message)
+# add_executable(${PROJECT_NAME}_ttlControl src/ttlControl.cpp)
+# add_dependencies(${PROJECT_NAME}_ttlControl ${catkin_EXPORTED_TARGETS})
+# target_link_libraries(${PROJECT_NAME}_ttlControl ${catkin_LIBRARIES} ${PCL_LIBRARIES} std_message)
 
 #paperData
 # add_executable(${PROJECT_NAME}_paperData src/paperData.cpp)
@@ -144,11 +144,11 @@ target_link_libraries(${PROJECT_NAME}_ttlControl ${catkin_LIBRARIES} ${PCL_LIBRA
 # target_link_libraries(${PROJECT_NAME}_paperData ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${lanelet2_core_LIBRARIES} ${lanelet2_io_LIBRARIES} ${lanelet2_projection_LIBRARIES})
 
 #speedAndLight
-add_executable(${PROJECT_NAME}_test src/test.cpp)
-add_dependencies(${PROJECT_NAME}_test ${catkin_EXPORTED_TARGETS})
-target_link_libraries(${PROJECT_NAME}_test ${catkin_LIBRARIES} std_message)
+# add_executable(${PROJECT_NAME}_test src/test.cpp)
+# add_dependencies(${PROJECT_NAME}_test ${catkin_EXPORTED_TARGETS})
+# target_link_libraries(${PROJECT_NAME}_test ${catkin_LIBRARIES} std_message)
 
 # scenePedestrain
-add_executable(${PROJECT_NAME}_scenePedestrain src/scenePedestrain.cpp)
-target_include_directories(${PROJECT_NAME}_scenePedestrain PUBLIC ${lanelet2_core_INCLUDE_DIRS} ${lanelet2_io_INCLUDE_DIRS} ${lanelet2_projection_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME}_scenePedestrain ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${lanelet2_core_LIBRARIES} ${lanelet2_io_LIBRARIES} ${lanelet2_projection_LIBRARIES})
+# add_executable(${PROJECT_NAME}_scenePedestrain src/scenePedestrain.cpp)
+# target_include_directories(${PROJECT_NAME}_scenePedestrain PUBLIC ${lanelet2_core_INCLUDE_DIRS} ${lanelet2_io_INCLUDE_DIRS} ${lanelet2_projection_INCLUDE_DIRS})
+# target_link_libraries(${PROJECT_NAME}_scenePedestrain ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES} ${lanelet2_core_LIBRARIES} ${lanelet2_io_LIBRARIES} ${lanelet2_projection_LIBRARIES})
