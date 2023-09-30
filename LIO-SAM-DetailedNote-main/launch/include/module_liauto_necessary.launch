@@ -1,0 +1,11 @@
+<launch>
+
+    <arg name="project" default="lio_sam"/>
+    
+    <node pkg="$(arg project)" type="$(arg project)_imuPreintegration"   name="$(arg project)_imuPreintegration"    output="screen" 	respawn="true"/>
+    <node pkg="$(arg project)" type="$(arg project)_imageProjection"     name="$(arg project)_imageProjection"      output="screen"     respawn="true"/>
+    <node pkg="$(arg project)" type="$(arg project)_featureExtraction"   name="$(arg project)_featureExtraction"    output="screen"     respawn="true"/>
+    <node pkg="$(arg project)" type="$(arg project)_liauto"      name="$(arg project)_liauto"       output="screen"     respawn="true"/>
+    <node pkg="$(arg project)" type="$(arg project)_tcp"      name="$(arg project)_tcp"       output="screen"     respawn="true"/>
+    
+</launch>
