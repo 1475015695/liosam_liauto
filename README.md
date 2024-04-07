@@ -19,13 +19,13 @@ ROS packages:
 sudo apt-get install -y ros-melodic-navigation
 sudo apt-get install -y ros-melodic-robot-localization
 sudo apt-get install -y ros-melodic-robot-state-publisher
+sudo apt install ros-melodic-lanelet2
 ```
 GTSAM packages：
 ```
 sudo add-apt-repository ppa:borglab/gtsam-release-4.0
 sudo apt install libgtsam-dev libgtsam-unstable-dev
 ```
-
 ## 3. compile this repository
 ```
 cd ..
