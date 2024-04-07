@@ -92,4 +92,4 @@ After relocalization, liauto will keep track our postion in map, and output coor
 2. [LIO-SAM](https://github.com/TixiaoShan/LIO-SAM) # base project. Thanks TixiaoShan :)
 3. [Lanelet2](https://github.com/fzi-forschungszentrum-informatik/Lanelet2) # load and use Lanelet map. Thanks Poggenhans, Fabian and Pauls, Jan-Hendrik and Janosovits, Johannes and Orf, Stefan and Naumann, Maximilian and Kuhnt, Florian and Mayr, Matthias :)
 4. [LIO-SAM-DetailedNote](https://github.com/smilefacehh/LIO-SAM-DetailedNote) # DetailedNote for lio-sam. Thanks smilefacehh Tao Lu :)
-5. [My paper]() #我的毕业论文，里面有详细的原理介绍 :) 也谢谢我自己 :)
+5. [My paper](https://pan.baidu.com/s/1N4BHll2LxmXUIf_olci_WA) #提取码1234，我的毕业论文，里面有详细的原理介绍 :) 也谢谢我自己 :)
