@@ -1,7 +1,7 @@
 # liosam_liauto
 Achieving relocalization and global real-time localization  based on LIO-SAM in point cloud maps\
 sample video preview:[无人驾驶课题](https://www.bilibili.com/video/BV11V4y1C7Hp/?spm_id_from=333.999.0.0) \
-[视频教程](https://www.bilibili.com/video/BV1LC4y1o7L6/#reply188159845568)   视频中“projection::UtmProjector projector(Origin({37.528444, 122.0780557}));“是当时建立地图时GPS获取的初始坐标。
+[视频教程](https://www.bilibili.com/video/BV1LC4y1o7L6/#reply188159845568)   视频中“projection::UtmProjector projector(Origin({37.528444, 122.0780557}));“是当时建立地图时GPS获取的初始坐标。如果你需要用自己的地图做全局定位，记得在params.yaml文件中将initial_GPS_lat/lon改成你自己的GPS经纬度。
 # Install
 System Require:\
 **Ubuntu(tested with 18.04)**\
