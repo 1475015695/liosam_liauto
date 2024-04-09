@@ -455,7 +455,7 @@ public:
         oriGpsPoseConv=gpsMsg->position_covariance[0];
         if(gpsMsg->position_covariance[0]<100)//10m置信度内
         {
-            projection::UtmProjector projector(Origin({inital_GPS_lat, initial_GPS_lon}));
+            projection::UtmProjector projector(Origin({initial_GPS_lat, initial_GPS_lon}));
             geometry_msgs::Point tmp;//可视化的点
             GPSPoint gp;//lanelet计算相对位置的点
             gp.lat=gpsMsg->latitude;
@@ -523,7 +523,7 @@ public:
     }
     void loadLanelet2Map()
     {
-    projection::UtmProjector projector(Origin({inital_GPS_lat, initial_GPS_lon}));
+    projection::UtmProjector projector(Origin({initial_GPS_lat, initial_GPS_lon}));
     // loading a map requires two things: the path and either an origin or a projector that does the lat/lon->x/y
     // conversion.
     std::string exampleMapPath =  "/home"+laneletFilePath;
