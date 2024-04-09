@@ -79,6 +79,7 @@ roslaunch lio_sam liauto.launch
 If you see white points cloud map and red lane map, **great**! you have done above steps correctly!\
 Come bro, we almost done :o\
 ## 3. Relocatlization
+Edit initial_GPS_lat/lon in `params.yaml` if you use your own map.
 After connect your sensor to ros, run:
 ```
 #in terminal
