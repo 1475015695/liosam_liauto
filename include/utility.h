@@ -186,7 +186,8 @@ public:
     float obstacleMarkerAlpha;
     float followPointScale;
     float miniDistance;
-    
+    float initial_GPS_lat;
+    float inital_GPS_lon;
 
     ParamServer()
     {
@@ -331,7 +332,8 @@ public:
 
         nh.param<float>("liauto/followPointScale",followPointScale,0.2);
         nh.param<float>("liauto/miniDistance",miniDistance,15);
-
+        nh.param<float>("liauto/initial_GPS_lat",initial_GPS_lat,0.0);
+        nh.param<float>("liauto/initial_GPS_lon",initial_GPS_lon,0.0);
         usleep(100);
     }
 
