@@ -187,7 +187,7 @@ public:
     float followPointScale;
     float miniDistance;
     float initial_GPS_lat;
-    float inital_GPS_lon;
+    float initial_GPS_lon;
 
     ParamServer()
     {
