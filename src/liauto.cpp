@@ -35,7 +35,7 @@ using namespace std;
 
 
 vector<double> transformDelay;
-projection::UtmProjector projector(Origin({37.528444, 122.0780557}));
+// projection::UtmProjector projector(Origin({37.528444, 122.0780557}));
 
 class liauto :public ParamServer
 {
@@ -142,6 +142,7 @@ public:
     ros::Publisher pubCenterLane;
     int scanTomapMatchCount=0;
     int scanTomapMatchCountTotal=10;
+    projection::UtmProjector projector(Origin({inital_GPS_lat, initial_GPS_lon}));
 
     liauto()//构造函数
     {
