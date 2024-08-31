@@ -8,12 +8,12 @@
     <node pkg="robot_localization" type="ekf_localization_node" name="ekf_gps" respawn="true">
         <remap from="odometry/filtered" to="odometry/navsat" />
     </node>
-
+    <!-- remap 指令左边from是该节点需要的话题名称，to是自己传感器发布的话题，remap将这传感器话题映射成节点需要的话题 -->
     <!-- Navsat -->
     <node pkg="robot_localization" type="navsat_transform_node" name="navsat" respawn="true">
         <!-- <rosparam param="datum">[37.528444, 122.0780557, 0.0, world, base_link]</rosparam> -->
         <remap from="imu/data" to="imu_correct" />
-        <remap from="gps/fix" to="gps/fix" />
+        <remap from="gps/fix" to="/fix" />
         <remap from="odometry/filtered" to="odometry/navsat" />
     </node>
 

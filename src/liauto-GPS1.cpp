@@ -1,3 +1,4 @@
+// GPS初始化
 #include "utility.h"
 #include "lio_sam/cloud_info.h"
 
@@ -16,32 +17,22 @@
 #include <dirent.h>
 #include <utility> //pair
 #include <chrono>
-#include <fstream>
+
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <Eigen/Dense>
 
 
-#include <geometry_msgs/PoseWithCovarianceStamped.h>
-#include <pcl/registration/ndt.h>
-#include <pcl/registration/ia_ransac.h>
-#include <pcl/point_types.h>
-#include <pcl/point_cloud.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/features/fpfh.h>
-#include <pcl/registration/gicp.h>
 using namespace lanelet;
 using namespace std;
 
-
-vector<double> transformDelay;
+projection::UtmProjector projector(Origin({37.528444, 122.0780557}));
 
 class liauto :public ParamServer
 {
 public:
     ros::Subscriber subCloud;
     ros::Subscriber subGPS;
-    ros::Subscriber subInitPose;
     std::deque<nav_msgs::Odometry> gpsQueue;
     lio_sam::cloud_info cloudInfo;
     //Global Varibal
@@ -51,10 +42,6 @@ public:
     pcl::PointCloud<pcl::PointXYZ>::Ptr localCornerMap;
     pcl::PointCloud<pcl::PointXYZ>::Ptr localSurfaceMap;
     pcl::PointCloud<pcl::PointXYZ>::Ptr trajPoint;
-
-    pcl::PointCloud<pcl::PointXYZ>::Ptr gpsPoints;
-    pcl::PointCloud<pcl::PointXYZ>::Ptr gps_to_traj;
-
     // 当前激光帧角点集合
     pcl::PointCloud<PointType>::Ptr laserCloudCornerLast; 
     // 当前激光帧平面点集合
@@ -65,7 +52,6 @@ public:
     pcl::KdTreeFLANN<pcl::PointXYZ>::Ptr kdtreeLocalCornerMap;
     pcl::KdTreeFLANN<pcl::PointXYZ>::Ptr kdtreeLocalSurfaceMap;
     pcl::KdTreeFLANN<pcl::PointXYZ>::Ptr kdtreeTrajPoint;
-    pcl::KdTreeFLANN<pcl::PointXYZ>::Ptr kdtreeRecordGpsPoints;
 
     ros::Publisher pubCloudMap;
     ros::Publisher pubGlobalCornerMap;
@@ -78,12 +64,11 @@ public:
 
     ros::Publisher pubLaneletMap;
     ros::Publisher pubTrajMap;
-    ros::Publisher pubSubMaptobeMatched;
+    ros::Publisher pubCurrGPS;
     ros::Subscriber subGps;
     ros::Subscriber subOriGps;
-    visualization_msgs::Marker currGpsPath,navsatPath;
+    visualization_msgs::Marker currGpsPath;
     ros::Publisher pubCurrGpsPath;
-    ros::Publisher pubNavsatPath;
     
     pcl::PointXYZ currGpsPoint;
     bool gpsVaild=false;
@@ -100,16 +85,13 @@ public:
     double timeLaserInfoLast=0.0;
     float oriGpsPoseConv=0.0;
     ros::Time timeLaserInfoStamp;
-    float transformTobeMapped[6]={0,0,0,0,0,0};//rpyxyz
+    float transformTobeMapped[6];//rpyxyz
     bool initialDone=false;
 
-    string keyMapDir=savePCDDirectory+"keyMap/";
+    string keyMapDir="/home/limy/roscode/map(copy)/keyMap/";
     vector<string> keyMapFiles;
     vector<pair<pcl::PointCloud<pcl::PointXYZ>,pcl::PointCloud<pcl::PointXYZ>>> keyMap;
     vector<pair<pcl::KdTreeFLANN<pcl::PointXYZ>,pcl::KdTreeFLANN<pcl::PointXYZ>>> keyMapKdtree;
-
-
-    std::vector<pcl::PointCloud<PointType>> cornerVector,surfVector;
 
     pcl::PointCloud<pcl::PointXYZ>::Ptr laserCloudSurfFromMap;//use in scan to map 
     pcl::PointCloud<pcl::PointXYZ>::Ptr laserCloudCornerFromMap;
@@ -150,10 +132,6 @@ public:
     pcl::VoxelGrid<pcl::PointXYZ> downSizeFilterSurf; 
     pcl::PointCloud<pcl::PointXY> centerLanePoints;
     ros::Publisher pubCenterLane;
-    int scanTomapMatchCount=0;
-    int scanTomapMatchCountTotal=10;
-    
-
     liauto()//构造函数
     {
         pubCloudMap=nh.advertise<sensor_msgs::PointCloud2> ("cloudMap", 1);
@@ -164,13 +142,11 @@ public:
         pubIcpResult=nh.advertise<sensor_msgs::PointCloud2>("icpResult",1);
         pubCurrScan=nh.advertise<sensor_msgs::PointCloud2>("currScan",1);
         pubTmpCloud=nh.advertise<sensor_msgs::PointCloud2>("tmpCloud",1);
-        pubTrajMap=nh.advertise<sensor_msgs::PointCloud2>("trajMap",1);
-        
-        pubSubMaptobeMatched=nh.advertise<sensor_msgs::PointCloud2>("mapTobeMatch",1);
         pubLaneletMap=nh.advertise<visualization_msgs::MarkerArray>("laneletMap",1);
+        pubCurrGPS=nh.advertise<visualization_msgs::Marker>("currGPS",1);
+        pubTrajMap=nh.advertise<sensor_msgs::PointCloud2>("trajMap",1);
         pubCenterLane=nh.advertise<sensor_msgs::PointCloud2>("centerLane",1);
         pubCurrGpsPath=nh.advertise<visualization_msgs::Marker>("currGpsPath",1);
-        pubNavsatPath=nh.advertise<visualization_msgs::Marker>("navsatPath",1);
         pubOdom=nh.advertise<nav_msgs::Odometry> ("lio_sam/mapping/odometry", 1);
         // 发布激光里程计，它与上面的激光里程计基本一样
         pubLaserOdometryIncremental = nh.advertise<nav_msgs::Odometry> ("lio_sam/mapping/odometry_incremental", 1);
@@ -179,20 +155,17 @@ public:
         // 订阅当前激光帧点云信息，来自featureExtraction
         subCloud = nh.subscribe<lio_sam::cloud_info>("lio_sam/feature/cloud_info", 1, &liauto::laserCloudInfoHandler, this, ros::TransportHints().tcpNoDelay());
         // 订阅GPS里程计
-        subGPS   = nh.subscribe<nav_msgs::Odometry> (gpsTopic, 200, &liauto::gpsHandler, this, ros::TransportHints().tcpNoDelay());
-        subOriGps=nh.subscribe<sensor_msgs::NavSatFix> (gpsOriTopic, 200, &liauto::OriGpsHandler, this, ros::TransportHints().tcpNoDelay());
-        subInitPose=nh.subscribe<geometry_msgs::PoseWithCovarianceStamped>("/initialpose",1,&liauto::initialPose,this,ros::TransportHints().tcpNoDelay());
+        // subGPS   = nh.subscribe<nav_msgs::Odometry> (gpsTopic, 200, &liauto::gpsHandler, this, ros::TransportHints().tcpNoDelay());
+        subOriGps=nh.subscribe<sensor_msgs::NavSatFix> (gpsTopic, 200, &liauto::OriGpsHandler, this, ros::TransportHints().tcpNoDelay());
         allocateMemory();
         loadCloudMap();
-        readkeyMap();
         // loadLanelet2Map();
-        
         while(!initialDone)
         {
             relocation();
             if(!initialDone)
             {
-                ROS_INFO("\033[1;37;41m----> %s\033[0m","Relocation failed, please move around the map rode");
+                cout<<"Relocation failed, please move around the map rode. "<<endl;
             }
         }
 
@@ -205,8 +178,6 @@ public:
         localCornerMap.reset(new pcl::PointCloud<pcl::PointXYZ>());
         localSurfaceMap.reset(new pcl::PointCloud<pcl::PointXYZ>());
         trajPoint.reset(new pcl::PointCloud<pcl::PointXYZ>());
-        gpsPoints.reset(new pcl::PointCloud<pcl::PointXYZ>());
-        gps_to_traj.reset(new pcl::PointCloud<pcl::PointXYZ>());
         laserCloudCornerLast.reset(new pcl::PointCloud<PointType>());
         laserCloudSurfLast.reset(new pcl::PointCloud<PointType>());
         kdtreeGlobalCornerMap.reset(new pcl::KdTreeFLANN<pcl::PointXYZ>());
@@ -214,7 +185,6 @@ public:
         kdtreeLocalCornerMap.reset(new pcl::KdTreeFLANN<pcl::PointXYZ>());
         kdtreeLocalSurfaceMap.reset(new pcl::KdTreeFLANN<pcl::PointXYZ>());
         kdtreeTrajPoint.reset(new pcl::KdTreeFLANN<pcl::PointXYZ>());
-        kdtreeRecordGpsPoints.reset(new pcl::KdTreeFLANN<pcl::PointXYZ>());
         magnOffset=Eigen::AngleAxisd(0.141720733,Eigen::Vector3d(0,0,1));
         negPidiv2=Eigen::AngleAxisd(-3.1415926/2.0,Eigen::Vector3d(0,0,1));
         currGpsPath.header.frame_id="map";
@@ -236,29 +206,6 @@ public:
         currGpsPath.color.a = 1.0;
         currGpsPath.color.r = 0.0;
         currGpsPath.color.g = 1.0;
-
-
-        navsatPath.header.frame_id="map";
-        navsatPath.header.stamp=ros::Time::now();
-        navsatPath.ns="navastPath_";//命名空间，防止和其他消息冲突
-        navsatPath.id=1;
-        navsatPath.type=visualization_msgs::Marker::LINE_STRIP;//画线
-        navsatPath.action = visualization_msgs::Marker::ADD;//相当于clear清除之前的数据
-        navsatPath.pose.position.x = 0.0;
-        navsatPath.pose.position.y = 0.0;
-        navsatPath.pose.position.z = 0.0;
-        navsatPath.pose.orientation.x = 0.0;
-        navsatPath.pose.orientation.y = 0.0;
-        navsatPath.pose.orientation.z = 0.0;
-        navsatPath.pose.orientation.w = 1.0;
-        navsatPath.scale.x = 1;
-        navsatPath.scale.y = 1;
-        navsatPath.scale.z = 1;
-        navsatPath.color.a = 1.0;
-        navsatPath.color.r = 0.5;
-        navsatPath.color.g = 1.0;
-
-
         laserCloudSurfFromMap.reset(new pcl::PointCloud<pcl::PointXYZ>());//
         laserCloudCornerFromMap.reset(new pcl::PointCloud<pcl::PointXYZ>());
         kdtreeSurfFromMap.reset(new pcl::KdTreeFLANN<pcl::PointXYZ>());
@@ -295,108 +242,67 @@ public:
         }
         return false;
     }
-    void initialPose(const geometry_msgs::PoseWithCovarianceStamped::ConstPtr& msg)
-    {
-        currGpsPoint.x=msg->pose.pose.position.x;
-        currGpsPoint.y=msg->pose.pose.position.y;
-        gpsVaild=true;
-    }
-    template <typename PointType>
-    void loadPointCloudVector(std::vector<pcl::PointCloud<PointType>>& clouds, const std::string& filename) {
-        std::ifstream ifs(filename, std::ios::binary);
-
-        if (!ifs) {
-            std::cerr << "Failed to open file for reading: " << filename << std::endl;
-            return;
-        }
-
-        size_t numClouds;
-        ifs.read(reinterpret_cast<char*>(&numClouds), sizeof(numClouds));
-
-        clouds.resize(numClouds);
-
-        for (auto& cloud : clouds) {
-            size_t pointCount;
-            ifs.read(reinterpret_cast<char*>(&pointCount), sizeof(pointCount));
-            cloud.points.resize(pointCount);
-            ifs.read(reinterpret_cast<char*>(cloud.points.data()), pointCount * sizeof(PointType));
-            cloud.width = pointCount;
-            cloud.height = 1;
-            cloud.is_dense = true;
-        }
-
-        ifs.close();
-    }
     
     void readkeyMap()
     {
-        pcl::io::loadPCDFile(savePCDDirectory+"trajectory.pcd",*trajPoint);
-        ROS_INFO("\033[33;40;1m----> trajectory num:%d\033[0m",trajPoint->points.size());
+        pcl::io::loadPCDFile("/home/limy/roscode/map(copy)/trajectory.pcd",*trajPoint);
+        cout<<"trajectory num: "<<trajPoint->points.size()<<endl;
         kdtreeTrajPoint->setInputCloud(trajPoint);
 
-        pcl::io::loadPCDFile(savePCDDirectory+"gpsPoints.pcd",*gpsPoints);
-        ROS_INFO("\033[33;40;1m----> recordGpsPoints num:%d\033[0m",gpsPoints->points.size());
-        kdtreeRecordGpsPoints->setInputCloud(gpsPoints);
 
-
-        loadPointCloudVector(cornerVector,savePCDDirectory+"cornerVector");
-        loadPointCloudVector(surfVector,savePCDDirectory+"surfVector");
-        cout<<"cornerVector.size():"<<cornerVector.size()<<endl;
-        cout<<"surfVector.size():"<<surfVector.size()<<endl;
-        // DIR* dir=opendir((keyMapDir).c_str());
-        // if(dir==nullptr)
+        DIR* dir=opendir(keyMapDir.c_str());
+        if(dir==nullptr)
+        {
+            cout<<"failed to open keyMapDir "<<keyMapDir<<endl;
+            return ;
+        }
+        dirent* entry=readdir(dir);
+        while(entry!=nullptr)
+        {
+            if(entry->d_type==DT_REG)
+            {
+                keyMapFiles.push_back(entry->d_name);
+            }
+            entry=readdir(dir);
+        }
+        sort(keyMapFiles.begin(),keyMapFiles.end());
+        sort(keyMapFiles.begin(),keyMapFiles.end(),customerSort);
+        cout<<"total keyMap num: "<<keyMapFiles.size()/2-1<<endl;
+        // if((keyMapFiles.size()/2-1)!=trajPoint->points.size())
         // {
-        //     ROS_INFO("\033[1;37;41m----> Failed to open keyMapDir:%s\033[0m",keyMapDir);
+        //     cout<<"trajectory not match keyMap!"<<endl;
         //     return ;
         // }
-        // dirent* entry=readdir(dir);
-        // while(entry!=nullptr)
-        // {
-        //     if(entry->d_type==DT_REG)
-        //     {
-        //         keyMapFiles.push_back(entry->d_name);
-        //     }
-        //     entry=readdir(dir);
-        // }
-        // sort(keyMapFiles.begin(),keyMapFiles.end());
-        // sort(keyMapFiles.begin(),keyMapFiles.end(),customerSort);
-        // cout<<"\033[Amtotal keyMap num: \033[0m"<<keyMapFiles.size()/2-1<<endl;
-        // closedir(dir);
-        
-        // for(int i=0;i<keyMapFiles.size();i++)
-        // {
-        //     cout<<i<<": "<<keyMapFiles[i]<<endl;
-        // }
-
-        // pcl::PointCloud<pcl::PointXYZ> tempCloud;
-        // pair<pcl::PointCloud<pcl::PointXYZ>,pcl::PointCloud<pcl::PointXYZ>> tempPair;
-        // // pcl::KdTreeFLANN<pcl::PointXYZ> tempKd;
-        // // pair<pcl::KdTreeFLANN<pcl::PointXYZ>,pcl::KdTreeFLANN<pcl::PointXYZ>> tempKdPair;
-        // int keymapSize=trajPoint->points.size();
-        // for(int i=0;i<=keymapSize;i++)
-        // {
+        closedir(dir);
+        pcl::PointCloud<pcl::PointXYZ> tempCloud;
+        pair<pcl::PointCloud<pcl::PointXYZ>,pcl::PointCloud<pcl::PointXYZ>> tempPair;
+        // pcl::KdTreeFLANN<pcl::PointXYZ> tempKd;
+        // pair<pcl::KdTreeFLANN<pcl::PointXYZ>,pcl::KdTreeFLANN<pcl::PointXYZ>> tempKdPair;
+        int keymapSize=trajPoint->points.size();
+        for(int i=0;i<=keymapSize;i++)
+        {
             
 
-        //     pcl::io::loadPCDFile(keyMapDir+keyMapFiles[i],tempCloud);
-        //     tempPair.first=tempCloud;
-        //     // tempKd.setInputCloud(tempCloud.makeShared());
-        //     // tempKdPair.first=tempKd;
+            pcl::io::loadPCDFile(keyMapDir+keyMapFiles[i],tempCloud);
+            tempPair.first=tempCloud;
+            // tempKd.setInputCloud(tempCloud.makeShared());
+            // tempKdPair.first=tempKd;
 
 
-        //     pcl::io::loadPCDFile(keyMapDir+keyMapFiles[i+keymapSize+1],tempCloud);
-        //     tempPair.second=tempCloud;
-        //     // tempKd.setInputCloud(tempCloud.makeShared());
-        //     // tempKdPair.second=tempKd;
+            pcl::io::loadPCDFile(keyMapDir+keyMapFiles[i+keymapSize+1],tempCloud);
+            tempPair.second=tempCloud;
+            // tempKd.setInputCloud(tempCloud.makeShared());
+            // tempKdPair.second=tempKd;
 
-        //     keyMap.push_back(tempPair);
-        //     cout<<i<<": "<<keyMapDir+keyMapFiles[i]<<"---"<<keyMapDir+keyMapFiles[i+keymapSize+1]<<endl;
-
+            keyMap.push_back(tempPair);
+            // keyMapKdtree.push_back(tempKdPair);
+            // cout<<keyMapFiles[i]<<"->"<<keyMapFiles[i+keymapSize+1]<<endl;
 
             
             
-        // }
+        }
 
-        cout<<"\033[Amkey Map loaded! \033[0m"<<endl;
+        cout<<"key Map loaded! "<<endl;
 
     }
     
@@ -428,15 +334,12 @@ public:
         // 当前激光帧时间戳
         timeLaserInfoStamp = msgIn->header.stamp;
         timeLaserInfoCur = msgIn->header.stamp.toSec();
-        // static double timeGap=ros::Time::now().toSec()-timeLaserInfoCur;
-        // double diff=ros::Time::now().toSec()-timeLaserInfoCur-timeGap;
-        // printf("diff:%10f\r\n",diff);
-        // transformDelay.push_back(diff);
+
         // 提取当前激光帧角点、平面点集合
         cloudInfo = *msgIn;
         pcl::fromROSMsg(msgIn->cloud_corner,  *laserCloudCornerLast);
         pcl::fromROSMsg(msgIn->cloud_surface, *laserCloudSurfLast);
-        if((initialDone&&(timeLaserInfoCur-timeLaserInfoLast)>scanToMapGap))//||(initialDone&&((scanTomapMatchCount++)<scanTomapMatchCountTotal)))
+        if(initialDone&&(timeLaserInfoCur-timeLaserInfoLast)>scanToMapGap)
         {
             auto startTime=std::chrono::steady_clock::now();
             //update init pose ，scan to map之前的位姿
@@ -450,7 +353,7 @@ public:
             // Print the elapsed time
             if(elapsed.count()>100)
             {
-                ROS_INFO("\033[33;40;1m----> Frame time over 100 ms !\033[0m");
+                std::cout << "Elapsed time over 100 ms !: " << elapsed.count() << " milliseconds" << std::endl;
             }
             
             // 更新当前帧位姿的roll, pitch, z坐标；因为是小车，roll、pitch是相对稳定的，不会有很大变动，一定程度上可以信赖imu的数据，z是进行高度约束
@@ -463,6 +366,7 @@ public:
             //把下面imu的当前变换也更新下
             lastImuPreTransformation=trans2Affine3f(transformTobeMapped);
             timeLaserInfoLast=timeLaserInfoCur;
+            // cout<<"xyzrpy:"<<transformTobeMapped[3]<<" "<<transformTobeMapped[4]<<" "<<transformTobeMapped[5]<<" "<<transformTobeMapped[0]<<" "<<transformTobeMapped[1]<<" "<<transformTobeMapped[2]<<endl;
             publishOdom();//imu 预积分需要这个
 
 
@@ -474,6 +378,7 @@ public:
             // 当前帧的初始估计位姿（来自imu里程计），后面用来计算增量位姿变换
             Eigen::Affine3f transBack = pcl::getTransformation(cloudInfo.initialGuessX,    cloudInfo.initialGuessY,     cloudInfo.initialGuessZ, 
                                                                cloudInfo.initialGuessRoll, cloudInfo.initialGuessPitch, cloudInfo.initialGuessYaw);
+            // cout<<"initGassXYZ:"<<cloudInfo.initialGuessX<<" "<<cloudInfo.initialGuessY<<" "<<cloudInfo.initialGuessZ<<" "<<endl;
             // 当前帧相对于前一帧的位姿变换，imu里程计计算得到
             Eigen::Affine3f transIncre = lastImuPreTransformation.inverse() * transBack;
             // 前一帧的位姿
@@ -486,52 +391,48 @@ public:
             // 赋值给前一帧
             lastImuPreTransformation = transBack;
         }
-        if(initialDone)
-        {
-            nav_msgs::Odometry curPose;
-            curPose.header.stamp = timeLaserInfoStamp;
-            curPose.header.frame_id = "/map";
-            curPose.pose.pose.position.x = transformTobeMapped[3];
-            curPose.pose.pose.position.y = transformTobeMapped[4];
-            curPose.pose.pose.position.z = transformTobeMapped[5];
-            curPose.pose.pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]);
-            pubPose.publish(curPose);
-            printf("\033[0;32;40mCurrent pose in 2D x:%6f,y:%6f \033[0m  \r\n ",transformTobeMapped[3],transformTobeMapped[4]);
-        }
-        
+        nav_msgs::Odometry curPose;
+        curPose.header.stamp = timeLaserInfoStamp;
+        curPose.header.frame_id = "/map";
+        curPose.pose.pose.position.x = transformTobeMapped[3];
+        curPose.pose.pose.position.y = transformTobeMapped[4];
+        curPose.pose.pose.position.z = transformTobeMapped[5];
+        curPose.pose.pose.orientation = tf::createQuaternionMsgFromRollPitchYaw(transformTobeMapped[0], transformTobeMapped[1], transformTobeMapped[2]);
+        pubPose.publish(curPose);
         
         
     }
     //经过nvsate节点滤波后的GPS数据
     void gpsHandler(const nav_msgs::Odometry::ConstPtr& gpsMsg)
     {
-        // gpsQueue.push_back(*gpsMsg);
+        gpsQueue.push_back(*gpsMsg);
         
-        // if(gpsMsg->pose.covariance[0]<100)
-        // {
+        if(gpsMsg->pose.covariance[0]<100)
+        {
             
-        //     currGpsPoint.x=gpsMsg->pose.pose.position.x;
-        //     currGpsPoint.y=gpsMsg->pose.pose.position.y;
-        //     currGpsPoint.z=gpsMsg->pose.pose.position.z;
+            currGpsPoint.x=gpsMsg->pose.pose.position.x;
+            currGpsPoint.y=gpsMsg->pose.pose.position.y;
+            currGpsPoint.z=gpsMsg->pose.pose.position.z;
             
-        //     // gpsVaild=true;
-        //     currGpsTime=gpsMsg->header.stamp.toSec();
+            gpsVaild=true;
+            currGpsTime=gpsMsg->header.stamp.toSec();
 
 
-        //     //可视化
-        //     geometry_msgs::Point pointVisual;
-        //     pointVisual.x=currGpsPoint.x;
-        //     pointVisual.y=currGpsPoint.y;
-        //     pointVisual.z=currGpsPoint.z;
-        //     navsatPath.points.push_back(pointVisual);
-        //     pubNavsatPath.publish(navsatPath);
+            //可视化
+            geometry_msgs::Point pointVisual;
+            pointVisual.x=gpsMsg->pose.pose.position.x;
+            pointVisual.y=gpsMsg->pose.pose.position.y;
+            pointVisual.z=gpsMsg->pose.pose.position.z;
+            currGpsPath.points.push_back(pointVisual);
+            pubCurrGpsPath.publish(currGpsPath);
 
-        // }
+        }
     }
     //原始GPS数据，没经过滤波
     void OriGpsHandler(const sensor_msgs::NavSatFix::ConstPtr& gpsMsg)
     {
-        // 只用在重定位中
+        // cout<<"gps revieve"<<endl;
+        //只用在重定位中
         if(initialDone)
         {
             return ;
@@ -539,37 +440,31 @@ public:
         oriGpsPoseConv=gpsMsg->position_covariance[0];
         if(gpsMsg->position_covariance[0]<100)//10m置信度内
         {
-            // projection::UtmProjector projector(Origin({initial_GPS_lat, initial_GPS_lon}));
-            // geometry_msgs::Point tmp;//可视化的点
-            // GPSPoint gp;//lanelet计算相对位置的点
-            // gp.lat=gpsMsg->latitude;
-            // gp.lon=gpsMsg->longitude;
-            // BasicPoint3d p=projector.forward(gp);//用forward可以把当前GPS点转换到以projection::UtmProjector projector(Origin({37.528444, 122.0780557}))为原点的局部坐标系，也就是现在我们的点云坐标系
-            // tmp.x=p.x();
-            // tmp.y=p.y();
-            // tmp.z=0.0;
-            // // printf("0:x(%f),y(%f)\n",p.x(),p.y());
-            // Eigen::Matrix3d rotationMatrix =Eigen::AngleAxisd(-M_PI/2.0,Eigen::Vector3d(0,0,1)).toRotationMatrix();//建图的时候多转了PI/2
-            // Eigen::Vector3d res=rotationMatrix*Eigen::Vector3d(tmp.x,tmp.y,tmp.z);
-
-            // currGpsPoint.x=res.x();
-            // currGpsPoint.y=res.y();
-            // currGpsPoint.z=res.z();
-            // // printf("1:x(%f),y(%f),z(%f)\n",res.x(),res.y(),res.z());
-            // //可视化
+            geometry_msgs::Point tmp;//可视化的点
+            GPSPoint gp;//lanelet计算相对位置的点
+            gp.lat=gpsMsg->latitude;
+            gp.lon=gpsMsg->longitude;
+            BasicPoint3d p=projector.forward(gp);//用forward可以把当前GPS点转换到以projection::UtmProjector projector(Origin({37.528444, 122.0780557}))为原点的局部坐标系，也就是现在我们的点云坐标系
+            tmp.x=p.x();
+            tmp.y=p.y();
+            tmp.z=0.0;
+            Eigen::Matrix3d rotationMatrix =Eigen::AngleAxisd(-M_PI/2.0,Eigen::Vector3d(0,0,1)).toRotationMatrix();//建图的时候多转了PI/2
+            Eigen::Vector3d res=rotationMatrix*Eigen::Vector3d(tmp.x,tmp.y,tmp.z);
+            tmp.x=res.x();
+            tmp.y=res.y();
+            tmp.z=res.z();
+            currGpsPath.points.push_back(tmp);
+            pubCurrGpsPath.publish(currGpsPath);
+            currGpsPoint.x=res.x();
+            currGpsPoint.y=res.y();
+            currGpsPoint.z=res.z();
+    
+            gpsVaild=true;
+            currGpsTime=gpsMsg->header.stamp.toSec();
             // geometry_msgs::Point pointVisual;
             // pointVisual.x=currGpsPoint.x;
             // pointVisual.y=currGpsPoint.y;
-            // pointVisual.z=currGpsPoint.z;
-            // currGpsPath.points.push_back(pointVisual);
-            // pubCurrGpsPath.publish(currGpsPath);
-
-            currGpsPoint.x=gpsMsg->latitude;
-            currGpsPoint.y=gpsMsg->longitude;
-            currGpsPoint.z=gpsMsg->altitude;
-
-            gpsVaild=true;
-            currGpsTime=gpsMsg->header.stamp.toSec();
+            
 
         }
     }
@@ -577,9 +472,10 @@ public:
 
     void loadCloudMap()
     {
-        ROS_INFO("\033[1;32m----> loading cloud map, this may take a long time.\033[0m");
+
+        cout<<"loading cloud map, this may take a long time. "<<endl;
         pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud(new pcl::PointCloud<pcl::PointXYZ>());
-        pcl::io::loadPCDFile(savePCDDirectory+"CornerMap.pcd",*tempCloud);
+        pcl::io::loadPCDFile("/home/limy/roscode/map(copy)/CornerMap.pcd",*tempCloud);
         downSizeFilterCorner.setInputCloud(tempCloud);
         downSizeFilterCorner.filter(*laserCloudCornerFromMap);
 
@@ -591,31 +487,31 @@ public:
         {
             pubGlobalCornerMap.publish(tempCloudMag);
             ros::Duration(1.0).sleep();
-        }  
+        }
         
 
         tempCloud->clear();
         
-        pcl::io::loadPCDFile(savePCDDirectory+"SurfMap.pcd",*tempCloud);
+        pcl::io::loadPCDFile("/home/limy/roscode/map(copy)/SurfMap.pcd",*tempCloud);
+        cout<<"befor downsize num :"<<tempCloud->points.size();
         downSizeFilterSurf.setInputCloud(tempCloud);
         downSizeFilterSurf.filter(*laserCloudSurfFromMap);
+        cout<<" after downsize num :"<<laserCloudSurfFromMap->points.size()<<endl;
 
 
 
-        pcl::io::loadPCDFile(savePCDDirectory+"trajectory.pcd",*trajPoint);
-
+        pcl::io::loadPCDFile("/home/limy/roscode/map(copy)/trajectory.pcd",*trajPoint);
+        
         sensor_msgs::PointCloud2 testMsg;
         pcl::toROSMsg(*trajPoint,testMsg);
         testMsg.header.frame_id="/map";
         testMsg.header.stamp=ros::Time::now();
         pubTrajMap.publish(testMsg);
 
-
         kdtreeTrajPoint->setInputCloud(trajPoint);
         kdtreeCornerFromMap->setInputCloud(laserCloudCornerFromMap);
         kdtreeSurfFromMap->setInputCloud(laserCloudSurfFromMap);
-        cout<<"\033[Ammap loaded. \033[0m"<<endl;
-        
+        cout<<"map loaded. "<<endl;
     }
     static bool centerLaneComp(lanelet::Lanelet& l1,lanelet::Lanelet& l2)
     {
@@ -623,10 +519,9 @@ public:
     }
     void loadLanelet2Map()
     {
-    projection::UtmProjector projector(Origin({initial_GPS_lat, initial_GPS_lon}));
     // loading a map requires two things: the path and either an origin or a projector that does the lat/lon->x/y
     // conversion.
-    std::string exampleMapPath =  laneletFilePath;
+    std::string exampleMapPath =  "/home/limy/roscode/map(copy)/new_lanelet2_maps.osm";
         // we will go into details later
     // projection::SphericalMercatorProjector
     LaneletMapPtr map = load(exampleMapPath, projector);
@@ -652,9 +547,9 @@ public:
         laneletMap.markers[i].pose.orientation.y = 0.0;
         laneletMap.markers[i].pose.orientation.z = 0.0;
         laneletMap.markers[i].pose.orientation.w = 1.0;
-        laneletMap.markers[i].scale.x = laneletMapScale;
-        laneletMap.markers[i].scale.y = laneletMapScale;
-        laneletMap.markers[i].scale.z = laneletMapScale;
+        laneletMap.markers[i].scale.x = 1;
+        laneletMap.markers[i].scale.y = 1;
+        laneletMap.markers[i].scale.z = 1;
         laneletMap.markers[i].color.a = 1.0;
         laneletMap.markers[i].color.r = 1.0;
         for(auto p:ll)
@@ -694,7 +589,7 @@ public:
     sort(laneLetVector.begin(),laneLetVector.end(),centerLaneComp);
     for(int i=0;i<laneLetVector.size();i++)
     {
-        // printf("laneLetVector[i].uniqueId():%6d\r\n",laneLetVector[i].id());
+        printf("laneLetVector[i].uniqueId():%6d\r\n",laneLetVector[i].id());
         auto centerLane=laneLetVector[i].centerline2d();
         pcl::PointXY tempP;
         
@@ -707,7 +602,7 @@ public:
             // printf("id:%6d,x:%6f,y:%6f\r\n",centerLaneP.id(),tempP.x,tempP.y);
         }
     }
-    cout<<"\033[Amtotal center lane Points: \033[0m"<<centerLanePoints.points.size()<<endl;
+    cout<<"total center lane Points: "<<centerLanePoints.points.size()<<endl;
     sensor_msgs::PointCloud2 tempCloudMag;
     pcl::toROSMsg(centerLanePoints, tempCloudMag);
     tempCloudMag.header.stamp = ros::Time::now();
@@ -771,22 +666,6 @@ public:
             cloudout->points.push_back(tp);
         }
     }
-    void transformPointCloud(pcl::PointCloud<pcl::PointXYZ>::Ptr cloudin,Eigen::Affine3f transform,pcl::PointCloud<pcl::PointXYZ>::Ptr cloudout)
-    {
-        Eigen::Vector3f tmp;
-        pcl::PointXYZ tp;
-        for(int i=0;i<cloudin->size();i++)
-        {
-            tmp[0]=cloudin->points[i].x;
-            tmp[1]=cloudin->points[i].y;
-            tmp[2]=cloudin->points[i].z;
-            tmp=transform*tmp;
-            tp.x=tmp[0];
-            tp.y=tmp[1];
-            tp.z=tmp[2];
-            cloudout->points.push_back(tp);
-        }
-    }
     /**
      * 激光坐标系下的激光点，通过激光帧位姿，变换到世界坐标系下
     */
@@ -796,291 +675,168 @@ public:
         po->y = transPointAssociateToMap(1,0) * pi->x + transPointAssociateToMap(1,1) * pi->y + transPointAssociateToMap(1,2) * pi->z + transPointAssociateToMap(1,3);
         po->z = transPointAssociateToMap(2,0) * pi->x + transPointAssociateToMap(2,1) * pi->y + transPointAssociateToMap(2,2) * pi->z + transPointAssociateToMap(2,3);
     }
-    void icpProcess(pcl::PointCloud<pcl::PointXYZ>::Ptr source,pcl::PointCloud<pcl::PointXYZ>::Ptr target,float &score,float transform[],pcl::PointCloud<pcl::PointXYZ>::Ptr matchResult)
-    {
-        pcl::IterativeClosestPoint<pcl::PointXYZ ,pcl::PointXYZ> icp;
-        // printf("source size:%6d, target size:%6d\r\n",source->points.size(),target->points.size());
-        icp.setInputSource(source);
-        icp.setInputTarget(target);
-        printf("%6f, %6f, %6f \r\n",icpSetMaxCorrespondenceDistance,icpSetTransformationEpsilon,icpSetEuclideanFitnessEpsilon);
-        icp.setMaxCorrespondenceDistance(icpSetMaxCorrespondenceDistance);
-        icp.setMaximumIterations(icpsetMaximumIterations);
-        icp.setTransformationEpsilon(icpSetTransformationEpsilon);
-        icp.setEuclideanFitnessEpsilon(icpSetEuclideanFitnessEpsilon);
-        icp.setRANSACIterations(icpSetRANSACIterations);
-
-
-
-        cout<<"\033[AmStart ICP !\033[0m"<<endl;
-        icp.align (*matchResult);
-        std::cout << "\033[AmICP has converged:\033[0m" << icp.hasConverged ()
-                    << " \033[Amscore: \033[0m" << icp.getFitnessScore () << std::endl;
-        score=icp.getFitnessScore();
-        
-        Eigen::Matrix4f transformation = icp.getFinalTransformation ();
-        Eigen::Isometry3f isoM(transformation);
-        Eigen::Vector3f eulerAngle=(isoM.rotation()).eulerAngles(0,1,2);//以r p y 的顺序返回
-        cout<<"r p y:\033[0m"<<eulerAngle.transpose()/M_PI*180<<endl;
-        transform[3]=transformation(0,3);
-        transform[4]=transformation(1,3);
-        transform[5]=transformation(2,3);
-
-        transform[0]=eulerAngle[0];
-        transform[1]=eulerAngle[1];
-        transform[2]=eulerAngle[2];
-    }
-    void ndtProcess(pcl::PointCloud<pcl::PointXYZ>::Ptr source,pcl::PointCloud<pcl::PointXYZ>::Ptr target,float &score,float transform[],pcl::PointCloud<pcl::PointXYZ>::Ptr matchResult)
-    {
-        pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt;
-        ndt.setTransformationEpsilon(ndtTransformationEpsilon);
-        ndt.setStepSize(ndtSetStepSize);
-        ndt.setResolution(ndtSetResolution);
-        ndt.setMaximumIterations(500);
-        ndt.setEuclideanFitnessEpsilon(icpSetEuclideanFitnessEpsilon);
-        // Set the source and target point clouds for registration
-        ndt.setInputSource(source);
-        ndt.setInputTarget(target);
-        // Align the source cloud to the target cloud using NDT
-        ndt.align(*matchResult);
-        cout<<"\033[Amstart ndt !\033[0m"<<endl;
-        std::cout << "\033[AmNDT has converged:\033[0m" << ndt.hasConverged ()
-                    << " \033[Amscore: \033[0m" << ndt.getFitnessScore () << std::endl;
-        score=ndt.getFitnessScore();
-        
-        Eigen::Matrix4f transformation = ndt.getFinalTransformation ();
-        Eigen::Isometry3f isoM(transformation);
-        Eigen::Vector3f eulerAngle=(isoM.rotation()).eulerAngles(0,1,2);//以r p y 的顺序返回
-        cout<<"\033[Amr p y:\033[0m"<<eulerAngle.transpose()<<endl;
-        transform[3]=transformation(0,3);
-        transform[4]=transformation(1,3);
-        transform[5]=transformation(2,3);
-
-        transform[0]=eulerAngle[0];
-        transform[1]=eulerAngle[1];
-        transform[2]=eulerAngle[2];
-    }
-    void gicpProcess(pcl::PointCloud<pcl::PointXYZ>::Ptr source,pcl::PointCloud<pcl::PointXYZ>::Ptr target,float &score,float transform[],pcl::PointCloud<pcl::PointXYZ>::Ptr matchResult)
-    {
-        pcl::GeneralizedIterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> gicp;
-
-        gicp.setInputSource(source);
-        gicp.setInputTarget(target);
-        gicp.setMaxCorrespondenceDistance(icpSetMaxCorrespondenceDistance);
-        gicp.setMaximumIterations(500);
-        gicp.setTransformationEpsilon(icpSetTransformationEpsilon);
-        gicp.setEuclideanFitnessEpsilon(icpSetEuclideanFitnessEpsilon);
-        // icp.setRANSACIterations(50);
-
-
-
-        cout<<"\033[Amstart gicp !\033[0m"<<endl;
-        gicp.align (*matchResult);
-        std::cout << "\033[Amgicp has converged:\033[0m" << gicp.hasConverged ()
-                    << "\033[Am score: \033[0m" << gicp.getFitnessScore () << std::endl;
-        score=gicp.getFitnessScore();
-        
-        Eigen::Matrix4f transformation = gicp.getFinalTransformation ();
-        Eigen::Isometry3f isoM(transformation);
-        Eigen::Vector3f eulerAngle=(isoM.rotation()).eulerAngles(0,1,2);//以r p y 的顺序返回
-        cout<<"\033[Amr p y:\033[0m"<<eulerAngle.transpose()/M_PI*180<<endl;
-        transform[3]=transformation(0,3);
-        transform[4]=transformation(1,3);
-        transform[5]=transformation(2,3);
-
-        transform[0]=eulerAngle[0];
-        transform[1]=eulerAngle[1];
-        transform[2]=eulerAngle[2];
-    }
     
-    
-    pcl::PointCloud<pcl::PointXYZ> pointxyzi_to_pointxyz(pcl::PointCloud<pcl::PointXYZI> src)
-    {
-        pcl::PointCloud<pcl::PointXYZ> dst;
-        for(int i=0;i<src.size();i++)
-        {
-            dst.push_back(pcl::PointXYZ(src[i].x,src[i].y,src[i].z));
-        }
-        return dst;
-    }
-    
+
+
     void relocation()
     {
         while(!gpsVaild)
         {
-            cout<<"\033[33;40;1mcurrent GPS signal bad. "<<"GPS position_covariance: \033[0m"<<oriGpsPoseConv<<endl;
-            ros::Duration(0.5).sleep();
+            cout<<"current GPS signal bad. "<<"GPS position_covariance: "<<oriGpsPoseConv<<endl;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
             ros::spinOnce();
         }
-        cout<<"\033[AmGPS valid\033[0m"<<endl;
+        cout<<"GPS valid"<<endl;
         //找到离当前gps点最近的轨迹点，把点云变换到该轨迹，再提取该轨迹附近50m的点云地图，和当前扫描做icp配准
         //由于有高度差，先找离GPS点最近的点云点，以这个点找子地图。
         std::vector<int> searchIndex;
         std::vector<float> searchDistance;
-        kdtreeRecordGpsPoints->nearestKSearch(currGpsPoint,1,searchIndex,searchDistance);
+        kdtreeTrajPoint->nearestKSearch(currGpsPoint, relocationKeyMapSize,searchIndex,searchDistance);
         pcl::PointXYZ nearestP=trajPoint->points[searchIndex[0]];
-        cout<<"\033[Amcurrent GPS point: \033[0m"<<currGpsPoint<<"\033[Am, nearest traj point: \033[0m"<<nearestP<<endl;
-        cout<<"\033[Amcurrent GPS point: \033[0m"<<currGpsPoint<<"\033[Am, nearest traj point: \033[0m"<<nearestP<<endl;
+        cout<<"current GPS point: "<<currGpsPoint<<", nearest traj point: "<<nearestP<<endl;
 
-        
+        geometry_msgs::Point pointVisual;
+        pointVisual.x=nearestP.x;
+        pointVisual.y=nearestP.y;
+        pointVisual.z=nearestP.z;
+        currGpsPath.points.push_back(pointVisual);
+        pubCurrGpsPath.publish(currGpsPath);
 
+        pcl::PointCloud<pcl::PointXYZ>::Ptr subMap(new pcl::PointCloud<pcl::PointXYZ>());
+        searchIndex.clear();
+        searchDistance.clear();
+        kdtreeCornerFromMap->radiusSearch(currGpsPoint,icpSetMaxCorrespondenceDistance,searchIndex,searchDistance);
+        for(int i=0;i<searchIndex.size();i++)
+        {
+            subMap->points.push_back(laserCloudCornerFromMap->points[searchIndex[i]]);
+        }
+        searchIndex.clear();
+        searchDistance.clear();
+        kdtreeSurfFromMap->radiusSearch(currGpsPoint,icpSetMaxCorrespondenceDistance,searchIndex,searchDistance);
+
+        for(int i=0;i<searchIndex.size();i++)
+        {
+            subMap->points.push_back(laserCloudSurfFromMap->points[searchIndex[i]]);
+        }
+
+        cout<<"subCornerMap size: "<<subMap->size()<<endl;
+        sensor_msgs::PointCloud2 subCornerMapMsg;
+        pcl::toROSMsg(*subMap,subCornerMapMsg);
+        subCornerMapMsg.header.frame_id="/map";//设置frame id要放在pcl::toROSMsg后面，pcl::toROSMsg会重置subCornerMapMsg
+        subCornerMapMsg.header.stamp=ros::Time::now();
+        pubLocalCornerMap.publish(subCornerMapMsg);
+
+        //将当前激光点云按照imu姿态变换下，加快匹配速度
         while(laserCloudCornerLast->size()==0)
         {
-            cout<<"\033[33;40;1mno lidar scan\033[0m"<<endl;
-            ros::Duration(0.5).sleep();
+            cout<<"no lidar scan"<<endl;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
             ros::spinOnce();
         }
-        cout<<"\033[Amlidar scan ok\033[0m"<<endl;
+        cout<<"lidar scan ok"<<endl;
+        *laserCloudCornerLast+=*laserCloudSurfLast;
 
-        pcl::PointCloud<pcl::PointXYZ>::Ptr initScan(new pcl::PointCloud<pcl::PointXYZ>());
-        for(size_t i=0;i<laserCloudCornerLast->points.size();i++)
-        {
-            initScan->points.push_back(pcl::PointXYZ(laserCloudCornerLast->points[i].x,laserCloudCornerLast->points[i].y,laserCloudCornerLast->points[i].z));
-        }
-        for(size_t i=0;i<laserCloudSurfLast->points.size();i++)
-        {
-            initScan->points.push_back(pcl::PointXYZ(laserCloudSurfLast->points[i].x,laserCloudSurfLast->points[i].y,laserCloudSurfLast->points[i].z));
-        }
-        // transformTobeMapped[0]=0.0;
-        // transformTobeMapped[1]=0.0;
-        // transformTobeMapped[2]=0.0;//-30.0/180*M_PI;
-        // transformTobeMapped[3]=nearestP.x;
-        // transformTobeMapped[4]=nearestP.y;
-        // transformTobeMapped[5]=nearestP.z;
-        // Eigen::Affine3f T=trans2Affine3f(transformTobeMapped);
-        // pcl::PointCloud<pcl::PointXYZ>::Ptr initScanTransed(new pcl::PointCloud<pcl::PointXYZ>());
-        // transformPointCloud(initScan,T,initScanTransed);
-        //选取最近路径点前后10个点作匹配
-        vector<float*> eachTrans;
-        vector<float> eachScore;
-        pcl::PointCloud<pcl::PointXYZ>::Ptr matchResult(new pcl::PointCloud<pcl::PointXYZ>());
-        pcl::PointCloud<pcl::PointXYZ>::Ptr target(new pcl::PointCloud<pcl::PointXYZ>());
-        for(int i=searchIndex[0]-(int)(relocationKeyMapSize/2);i<searchIndex[0]+(int)(relocationKeyMapSize/2);i+=relocationPickGap)
-        {
-            if(i<0)
-            {
-                i=0;
-            }
-            if(i>trajPoint->points.size())
-            {
-                i=trajPoint->points.size();
-            }
-            if(1)
-            {
-                geometry_msgs::Point pointVisual;
-                pointVisual.x=trajPoint->points[i].x;
-                pointVisual.y=trajPoint->points[i].y;
-                pointVisual.z=trajPoint->points[i].z;
-                currGpsPath.points.push_back(pointVisual);
-                pubCurrGpsPath.publish(currGpsPath);
-
-                float* trans=new float[6];
-                float score=-1;
-                // float tempTrans[6];
-                // for(int k=0;k<6;k++)
-                // {
-                //     tempTrans[k]=transformTobeMapped[k];
-                // }
-                target->points.clear();
-                *target+=pointxyzi_to_pointxyz(cornerVector[i]);
-                *target+=pointxyzi_to_pointxyz(surfVector[i]);
-
-                sensor_msgs::PointCloud2 subMap;
-                pcl::toROSMsg(*target,subMap);
-                subMap.header.frame_id="/map";
-                subMap.header.stamp=ros::Time::now();
-                pubSubMaptobeMatched.publish(subMap);
-
-                
-                if(useIcp==0)
-                {
-                    icpProcess(initScan,target,score,trans,matchResult);
-                }
-                else if(useIcp==1)
-                {
-                    ndtProcess(initScan,target,score,trans,matchResult);
-                }
-                else if(useIcp==2)
-                {
-                    gicpProcess(initScan,target,score,trans,matchResult);
-                }
-                
-                // for(int k=0;k<6;k++)
-                // {
-                //     tempTrans[k]+=trans[k];
-                // }
-                // pcl::PointCloud<pcl::PointXYZ>::Ptr testFinalTran(new pcl::PointCloud<pcl::PointXYZ>());
-                // Eigen::Affine3f T=trans2Affine3f(tempTrans);
-                // transformPointCloud(initScan,T,testFinalTran);
-                // *matchResult+=*testFinalTran;
-                // *matchResult+=*initScan;
-                // *matchResult+=*target;
-                // matchResult->width=matchResult->points.size();
-                // matchResult->height=1;
-                // pcl::io::savePCDFileASCII("/home/limy/roscode/tempdata/"+to_string(i)+"-"+to_string(score)+".pcd", *matchResult);
-                eachScore.push_back(score);
-                printf("index:%4d, trans: ",i);
-                for(int k=0;k<6;k++)
-                {
-                    // trans[k]+=transformTobeMapped[k];
-                    printf(" %6f ",trans[k]);
-                }
-                printf("\r\n");
-
-                // printf("index:%4d, tempTrans: ",i);
-                // for(int k=0;k<6;k++)
-                // {
-                //     printf(" %6f ",tempTrans[k]);
-                // }
-                printf("\r\n");
-                eachTrans.push_back(trans);
-                // Eigen::Affine3f testTrans=trans2Affine3f(tempTrans);
-                // pcl::PointCloud<pcl::PointXYZ>::Ptr testPointCloudOut(new pcl::PointCloud<pcl::PointXYZ>());
-                // transformPointCloud(initScan,testTrans,testPointCloudOut);
-
-                // sensor_msgs::PointCloud2 testMsg;
-                // pcl::toROSMsg(*testPointCloudOut,testMsg);
-                // testMsg.header.frame_id="/map";
-                // testMsg.header.stamp=ros::Time::now();
-
-                // pubTmpCloud.publish(testMsg);
-                
-                
-            }
-        }
-        //找到得分最好的trans
-        auto bastScore=min_element(eachScore.begin(),eachScore.end());
-        int min_idx = std::distance(eachScore.begin(), bastScore);
-        for(int k=0;k<6;k++)
-        {
-            transformTobeMapped[k]=eachTrans[min_idx][k];
-        }
-        cout<<"\033[AmtransformTobeMaped:(rpyxyz)\033[0m"<<endl;
-        for(int i=0;i<3;i++)
-        {
-            printf(" %6f ",transformTobeMapped[i]/M_PI*180.0);
-        }
-        for(int i=3;i<6;i++)
-        {
-            printf(" %6f ",transformTobeMapped[i]);
-        }
-        printf("\r\n");
+        pcl::PointCloud<pcl::PointXYZ>::Ptr tmpCloud(new pcl::PointCloud<pcl::PointXYZ>());
         
-        Eigen::Affine3f testTrans=trans2Affine3f(transformTobeMapped);
-        pcl::PointCloud<pcl::PointXYZ>::Ptr testPointCloudOut(new pcl::PointCloud<pcl::PointXYZ>());
-        transformPointCloud(initScan,testTrans,testPointCloudOut);
+        
+        transformTobeMapped[0]=0.0;
+        transformTobeMapped[1]=0.0;
+        transformTobeMapped[2]=0.0;
+        if(cloudInfo.imuAvailable)
+        {
 
-        sensor_msgs::PointCloud2 testMsg;
-        pcl::toROSMsg(*testPointCloudOut,testMsg);
-        testMsg.header.frame_id="/map";
-        testMsg.header.stamp=ros::Time::now();
-        pubTmpCloud.publish(testMsg);
+            transformTobeMapped[0]=cloudInfo.imuRollInit;
+            transformTobeMapped[1]=cloudInfo.imuPitchInit;
+            transformTobeMapped[2]=cloudInfo.imuYawInit-M_PI_2;
+        }
+        transformTobeMapped[3]=nearestP.x;
+        transformTobeMapped[4]=nearestP.y;
+        transformTobeMapped[5]=nearestP.z;
+        Eigen::Affine3f T=trans2Affine3f(transformTobeMapped);
+        // cout<<"rev init rpy:"<<T.rotation().eulerAngles(0,1,2).transpose()<<endl;
+        transformPointCloud(laserCloudCornerLast,T,tmpCloud);
+        // sensor_msgs::PointCloud2 tmpCloudMsg;
+        // pcl::toROSMsg(*tmpCloud,tmpCloudMsg);
+        // tmpCloudMsg.header.frame_id="/map";
+        // tmpCloudMsg.header.stamp=ros::Time::now();
+        // pubTmpCloud.publish(tmpCloudMsg);
+        
 
-        lastImuPreTransformation=trans2Affine3f(transformTobeMapped);
-        incrementalOdometryAffineFront=trans2Affine3f(transformTobeMapped);
-        increOdomAffine=trans2Affine3f(transformTobeMapped);
-        initialDone=true;
+        //icp
+        pcl::IterativeClosestPoint<pcl::PointXYZ ,pcl::PointXYZ> icp;
+
+        icp.setInputSource(tmpCloud);
+        icp.setInputTarget(subMap);
+        icp.setMaxCorrespondenceDistance(icpSetMaxCorrespondenceDistance);
+        icp.setMaximumIterations(icpsetMaximumIterations);
+        icp.setTransformationEpsilon(icpSetTransformationEpsilon);
+        icp.setEuclideanFitnessEpsilon(icpSetEuclideanFitnessEpsilon);
+        icp.setRANSACIterations(0);
 
 
+        // Perform the alignment
+        pcl::PointCloud<pcl::PointXYZ>::Ptr icpResult(new pcl::PointCloud<pcl::PointXYZ>());
+        cout<<"start icp !"<<endl;
+        icp.align (*icpResult);
+        std::cout << "ICP has converged:" << icp.hasConverged ()
+                    << " score: " << icp.getFitnessScore () << std::endl;
+
+       
+        if(icp.hasConverged())
+        {
+
+            cout<<"icp finish"<<endl;
+            sensor_msgs::PointCloud2 tmp;
+            pcl::toROSMsg(*icpResult,tmp);
+            tmp.header.frame_id="/map";
+            tmp.header.stamp=ros::Time::now();
+
+            pubIcpResult.publish(tmp);
+
+             // Obtain the transformation that aligned cloud_source to cloud_source_registered
+            Eigen::Matrix4f transformation = icp.getFinalTransformation ();
+            Eigen::Isometry3f isoM(transformation);
+            Eigen::Vector3f eulerAngle=(isoM.rotation()).eulerAngles(0,1,2);//以r p y 的顺序返回
+            cout<<"r p y:"<<eulerAngle.transpose()<<endl;
+
+            transformTobeMapped[3]+=transformation(0,3);
+            transformTobeMapped[4]+=transformation(1,3);
+            transformTobeMapped[5]+=transformation(2,3);
+
+            transformTobeMapped[0]+=eulerAngle[0];
+            transformTobeMapped[1]+=eulerAngle[1];
+            transformTobeMapped[2]+=eulerAngle[2];
+            cout<<"transformTobeMaped:(rpyxyz)"<<endl;
+            for(int i=0;i<6;i++)
+            {
+                cout<<transformTobeMapped[i]<<endl;
+            }
+            Eigen::Affine3f testTrans=trans2Affine3f(transformTobeMapped);
+
+            pcl::PointCloud<PointType>::Ptr testPointCloud(new pcl::PointCloud<PointType>());
+            pcl::PointCloud<pcl::PointXYZ>::Ptr testPointCloudOut(new pcl::PointCloud<pcl::PointXYZ>());
+            *testPointCloud+=*laserCloudSurfLast;
+            *testPointCloud+=*laserCloudCornerLast;
+            transformPointCloud(testPointCloud,testTrans,testPointCloudOut);
+
+            sensor_msgs::PointCloud2 testMsg;
+            pcl::toROSMsg(*testPointCloudOut,testMsg);
+            testMsg.header.frame_id="/map";
+            testMsg.header.stamp=ros::Time::now();
+
+            pubTmpCloud.publish(testMsg);
+
+            lastImuPreTransformation=trans2Affine3f(transformTobeMapped);
+            incrementalOdometryAffineFront=trans2Affine3f(transformTobeMapped);
+            increOdomAffine=trans2Affine3f(transformTobeMapped);
+            initialDone=true;
+
+            
+        }
+        else
+        {
+            cout<<"icp failed"<<endl;
+        }
 
 
     }
@@ -1521,6 +1277,7 @@ int main(int argc, char** argv)
     ROS_INFO("\033[1;32m----> LiAuto Started.\033[0m");
 
     ros::spin();
+  
 
 
   return 0;

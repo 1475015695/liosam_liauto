@@ -154,6 +154,7 @@ public:
 
     //liauto param
     string laneletFilePath;
+    string gpsOriTopic;
     int relocationKeyMapSize;
     float scanToMapGap;
     float turnScale;
@@ -167,6 +168,9 @@ public:
     float ndtSetResolution;
     float icpSetTransformationEpsilon;
     float icpSetEuclideanFitnessEpsilon;
+    int icpsetMaximumIterations;
+    int icpSetRANSACIterations;
+    int relocationPickGap;
     float kalman_initial_estimate;
     float kalman_initial_error;
     float kalman_measurement_error;
@@ -285,6 +289,7 @@ public:
 
         //liauto
         nh.param<std::string>("liauto/laneletFilePath", laneletFilePath, "/Downloads/LOAM/");
+        nh.param<std::string>("liauto/gpsOriTopic", gpsOriTopic, "/fix");
         nh.param<int>("liauto/relocationKeyMapSize",relocationKeyMapSize,50);
         nh.param<float>("liauto/scanToMapGap",scanToMapGap,0.1);
         nh.param<float>("liauto/turnScale",turnScale,1.0);
@@ -295,9 +300,13 @@ public:
         nh.param<int>("liauto/resetImuPreintegration",resetImuPreintegration,0);
         nh.param<float>("liauto/ndtSetStepSize",ndtSetStepSize,0.1);
         nh.param<float>("liauto/ndtSetResolution",ndtSetResolution,0.1);
-        nh.param<float>("liauto/icpSetMaxCorrespondenceDistance",icpSetMaxCorrespondenceDistance,0.2);
-        nh.param<float>("liauto/icpSetTransformationEpsilon",icpSetTransformationEpsilon,1.0e-6);
-        nh.param<float>("liauto/icpSetEuclideanFitnessEpsilon",icpSetEuclideanFitnessEpsilon,1.0e-6);
+        nh.param<float>("liauto/icpSetMaxCorrespondenceDistance",icpSetMaxCorrespondenceDistance,200);
+        nh.param<float>("liauto/icpSetTransformationEpsilon",icpSetTransformationEpsilon,1.0e-8);
+        nh.param<float>("liauto/icpSetEuclideanFitnessEpsilon",icpSetEuclideanFitnessEpsilon,1.0e-8);
+        nh.param<int>("liauto/icpsetMaximumIterations",icpsetMaximumIterations,500);
+        nh.param<int>("liauto/icpSetRANSACIterations",icpSetRANSACIterations,10);
+
+        nh.param<int>("liauto/relocationPickGap",relocationPickGap,5);
 
         nh.param<float>("liauto/kalman_initial_estimate",kalman_initial_estimate,0.0);
         nh.param<float>("liauto/kalman_initial_error",kalman_initial_error,0.0);

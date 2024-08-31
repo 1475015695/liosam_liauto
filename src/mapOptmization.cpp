@@ -120,6 +120,10 @@ public:
     
     // 历史关键帧位姿（位置）
     pcl::PointCloud<PointType>::Ptr cloudKeyPoses3D;
+    // limy 重定位时从GPS查找对应的traj cloudKeyPoses3D 
+    pcl::PointCloud<pcl::PointXYZ>::Ptr gpsPoints;
+    std::deque<sensor_msgs::NavSatFix> oriGpsMsgs;
+    ros::Subscriber subOriGps;
     // 历史关键帧位姿
     pcl::PointCloud<PointTypePose>::Ptr cloudKeyPoses6D;
     pcl::PointCloud<PointType>::Ptr copy_cloudKeyPoses3D;
@@ -232,6 +236,7 @@ public:
         subCloud = nh.subscribe<lio_sam::cloud_info>("lio_sam/feature/cloud_info", 1, &mapOptimization::laserCloudInfoHandler, this, ros::TransportHints().tcpNoDelay());
         // 订阅GPS里程计
         subGPS   = nh.subscribe<nav_msgs::Odometry> (gpsTopic, 200, &mapOptimization::gpsHandler, this, ros::TransportHints().tcpNoDelay());
+        subOriGps = nh.subscribe<sensor_msgs::NavSatFix> (gpsOriTopic, 200, &mapOptimization::OriGpsHandler, this, ros::TransportHints().tcpNoDelay());
         // 订阅来自外部闭环检测程序提供的闭环数据，本程序没有提供，这里实际没用上
         subLoop  = nh.subscribe<std_msgs::Float64MultiArray>("lio_loop/loop_closure_detection", 1, &mapOptimization::loopInfoHandler, this, ros::TransportHints().tcpNoDelay());
 
@@ -268,6 +273,7 @@ public:
         cloudKeyPoses3D.reset(new pcl::PointCloud<PointType>());
         cloudKeyPoses6D.reset(new pcl::PointCloud<PointTypePose>());
         copy_cloudKeyPoses3D.reset(new pcl::PointCloud<PointType>());
+        gpsPoints.reset(new pcl::PointCloud<pcl::PointXYZ>());
         copy_cloudKeyPoses6D.reset(new pcl::PointCloud<PointTypePose>());
 
         kdtreeSurroundingKeyPoses.reset(new pcl::KdTreeFLANN<PointType>());
@@ -305,7 +311,11 @@ public:
 
         matP = cv::Mat(6, 6, CV_32F, cv::Scalar::all(0));
     }
-
+    //原始GPS数据，没经过滤波
+    void OriGpsHandler(const sensor_msgs::NavSatFix::ConstPtr& gpsMsg)
+    {
+        oriGpsMsgs.push_back(*gpsMsg);
+    }
     /**
      * 订阅当前激光帧点云信息，来自featureExtraction
      * 1、当前帧位姿初始化
@@ -413,6 +423,8 @@ public:
     {
         gpsQueue.push_back(*gpsMsg);
     }
+
+    
 
     /**
      * 激光坐标系下的激光点，通过激光帧位姿，变换到世界坐标系下
@@ -578,21 +590,42 @@ public:
     //   return true;
     // }
 
+    template <typename PointType>
+    void savePointCloudVector(const std::vector<pcl::PointCloud<PointType>>& clouds, const std::string& filename) {
+        std::ofstream ofs(filename, std::ios::binary);
+
+        if (!ofs) {
+            std::cerr << "Failed to open file for writing: " << filename << std::endl;
+            return;
+        }
+
+        size_t numClouds = clouds.size();
+        ofs.write(reinterpret_cast<const char*>(&numClouds), sizeof(numClouds));
+
+        for (const auto& cloud : clouds) {
+            size_t pointCount = cloud.points.size();
+            ofs.write(reinterpret_cast<const char*>(&pointCount), sizeof(pointCount));
+            ofs.write(reinterpret_cast<const char*>(cloud.points.data()), pointCount * sizeof(PointType));
+        }
+
+        ofs.close();
+    }
 
     bool saveMapService(lio_sam::save_mapRequest& req, lio_sam::save_mapResponse& res)
     {
-      string saveMapDirectory;
+      string saveMapDirectory=savePCDDirectory;
 
       cout << "****************************************************" << endl;
       cout << "Saving map to pcd files ..." << endl;
-      if(req.destination.empty()) saveMapDirectory = std::getenv("HOME") + savePCDDirectory;
-      else saveMapDirectory = std::getenv("HOME") + req.destination;
+    //   if(req.destination.empty()) saveMapDirectory = std::getenv("HOME") + savePCDDirectory;
+    //   else saveMapDirectory = std::getenv("HOME") + req.destination;
       cout << "Save destination: " << saveMapDirectory << endl;
       // 这个代码太坑了！！注释掉
       // int unused = system((std::string("exec rm -r ") + saveMapDirectory).c_str());
       // unused = system((std::string("mkdir -p ") + saveMapDirectory).c_str());
       // 保存历史关键帧位姿
       pcl::io::savePCDFileBinary(saveMapDirectory + "/trajectory.pcd", *cloudKeyPoses3D);
+      
       pcl::io::savePCDFileBinary(saveMapDirectory + "/transformations.pcd", *cloudKeyPoses6D);
       // 提取历史关键帧角点、平面点集合
       pcl::PointCloud<PointType>::Ptr globalCornerCloud(new pcl::PointCloud<PointType>());
@@ -606,16 +639,24 @@ public:
           cout << "\r" << std::flush << "Processing feature cloud " << i << " of " << cloudKeyPoses6D->size() << " ...";
       }
       //limy
+      pcl::io::savePCDFileBinary(saveMapDirectory + "/gpsPoints.pcd", *gpsPoints);
       pcl::PointCloud<PointType>::Ptr subCorner(new pcl::PointCloud<PointType>());
       pcl::PointCloud<PointType>::Ptr subSurface(new pcl::PointCloud<PointType>());
       string keyMapDir="/keyMap/";
+      std::vector<pcl::PointCloud<PointType>> cornerVector,surfVector;
+
       for (int i = 0; i < (int)cloudKeyPoses3D->size(); i++) {
           *subCorner    = *transformPointCloud(cornerCloudKeyFrames[i],  &cloudKeyPoses6D->points[i]);
           *subSurface   = *transformPointCloud(surfCloudKeyFrames[i],    &cloudKeyPoses6D->points[i]);
-          pcl::io::savePCDFileBinary(saveMapDirectory + keyMapDir + "/subCorner"+to_string(i)+".pcd", *subCorner);
-          pcl::io::savePCDFileBinary(saveMapDirectory + keyMapDir + "/subSurface"+to_string(i)+".pcd", *subSurface);
-          cout << "\r" << std::flush << "saving feature cloud " << i << " of " << cloudKeyPoses6D->size() << " ...";
+          cornerVector.push_back(*subCorner );
+          surfVector.push_back(*subSurface);
+        //   pcl::io::savePCDFileBinary(saveMapDirectory + keyMapDir + "/subCorner"+to_string(i)+".pcd", *subCorner);
+        //   pcl::io::savePCDFileBinary(saveMapDirectory + keyMapDir + "/subSurface"+to_string(i)+".pcd", *subSurface);
+        //   cout << "\r" << std::flush << "saving feature cloud " << i << " of " << cloudKeyPoses6D->size() << " ...";
       }
+      savePointCloudVector(cornerVector,saveMapDirectory+"cornerVector");
+      savePointCloudVector(surfVector,saveMapDirectory+"surfVector");
+      
 
       if(req.resolution != 0)
       {
@@ -1847,7 +1888,7 @@ public:
     */
     void addGPSFactor()
     {
-        return;//暂时不加GPS约束
+        // return;//暂时不加GPS约束
         if (gpsQueue.empty())
             return;
 
@@ -2014,6 +2055,18 @@ public:
         // 索引
         thisPose3D.intensity = cloudKeyPoses3D->size(); 
         cloudKeyPoses3D->push_back(thisPose3D);
+        if(oriGpsMsgs.empty())
+        {
+            pcl::PointXYZ gp(0,0,0);
+            gpsPoints->push_back(gp);
+        }
+        else
+        {
+            pcl::PointXYZ gp(oriGpsMsgs.back().latitude,oriGpsMsgs.back().longitude,oriGpsMsgs.back().altitude);
+            // pcl::PointXYZ gp(gpsQueue.back().pose.pose.position.x,gpsQueue.back().pose.pose.position.y,gpsQueue.back().pose.pose.position.z);
+            gpsPoints->push_back(gp);
+        }
+        
 
         // cloudKeyPoses6D加入当前帧位姿
         thisPose6D.x = thisPose3D.x;

@@ -7,7 +7,10 @@
 
     <!--- LOAM -->
     <include file="$(find lio_sam)/launch/include/module_liauto_necessary.launch" />
-
+    <!--- Robot State TF -->
+    <include file="$(find lio_sam)/launch/include/module_robot_state_publisher.launch" />
+    <!--- Run Navsat -->
+    <include file="$(find lio_sam)/launch/include/module_navsat.launch" />
     <!--- Run Rviz-->
     <include file="$(find lio_sam)/launch/include/module_rviz_liauto.launch" />
 

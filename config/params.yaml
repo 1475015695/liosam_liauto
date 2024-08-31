@@ -27,6 +27,7 @@ lio_sam:
   odomTopic: "odometry/imu"                   # IMU pre-preintegration odometry, same frequency as IMU
   # gpsTopic: "odometry/gpsz"                   # GPS odometry topic from navsat, see module_navsat.launch file
   gpsTopic: "odometry/gps"
+  
       
   # Frames
   lidarFrame: "base_link"
@@ -42,7 +43,7 @@ lio_sam:
   
   # Export settings
   savePCD: true                              # https://github.com/TixiaoShan/LIO-SAM/issues/3
-  savePCDDirectory: "/limy/roscode/map_copy/"        # in your home folder, starts and ends with "/". Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
+  savePCDDirectory: "/home/limy/roscode/map/"        # abs path. Warning: the code deletes "LOAM" folder then recreates it. See "mapOptimization" for implementation
 
   # Sensor Settings
   N_SCAN: 16                                  # number of lidar channel (i.e., 16, 32, 64, 128)
@@ -91,7 +92,7 @@ lio_sam:
   loopClosureEnableFlag: true
   loopClosureFrequency: 1.0                     # Hz, regulate loop closure constraint add frequency
   surroundingKeyframeSize: 50                   # submap size (when loop closure enabled)
-  historyKeyframeSearchRadius: 50.0             # meters, key frame that is within n meters from current pose will be considerd for loop closure
+  historyKeyframeSearchRadius: 100.0             # meters, key frame that is within n meters from current pose will be considerd for loop closure
   historyKeyframeSearchTimeDiff: 30.0           # seconds, key frame that is n seconds older will be considered for loop closure
   historyKeyframeSearchNum: 25                  # number of hostory key frames will be fused into a submap for loop closure
   historyKeyframeFitnessScore: 0.3              # icp threshold, the smaller the better alignment
@@ -102,13 +103,17 @@ lio_sam:
   globalMapVisualizationLeafSize: 1.0           # meters, global map visualization cloud density
 
 liauto:
+  gpsOriTopic: "/fix"
   laneletFilePath: "/limy/roscode/map_copy/new_lanelet2_maps.osm"              # 道路地图文件projection::UtmProjector projector(Origin({37.528444, 122.0780557}));
   initial_GPS_lat: 37.528444                    # 建图时的第一个GPS纬度，GPS全局定位用，不用可不管
   initial_GPS_lon: 122.0780557                  # 建图时的第一个GPS经度，GPS全局定位用，不用可不管
-  relocationKeyMapSize: 20                      # 重定位时搜索离当前GPS点最近的关键帧个数
-  icpSetMaxCorrespondenceDistance: 100000          # 重定位ICP算法中匹配点间的最大距离（真是值除以四，因为雷达缩小了4倍）
+  relocationKeyMapSize: 100                      # 重定位时搜索离当前GPS点最近的关键帧个数
+  relocationPickGap: 5
+  icpSetMaxCorrespondenceDistance: 10000          # 重定位ICP算法中匹配点间的最大距离（真是值除以四，因为雷达缩小了4倍）
   icpSetTransformationEpsilon: 1.0e-6           # 当转换矩阵的变化小于此阈值时，ICP算法的迭代过程将终止。
   icpSetEuclideanFitnessEpsilon: 1.0e-6            # 当ICP算法将源点云变换到目标点云的均方误差小于 SetEuclideanFitnessEpsilon 时，ICP算法将停止迭代
+  icpsetMaximumIterations: 500
+  icpSetRANSACIterations: 50
   useIcp: 0                                     # 使用ICP：0还是NDT：1
   ndtTransformationEpsilon: 100                 # ndt 匹配点间的最大距离 
   ndtSetStepSize: 0.001                           # ndt 
