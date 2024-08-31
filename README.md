@@ -1,7 +1,7 @@
 # liosam_liauto
 Achieving relocalization and global real-time localization  based on LIO-SAM in point cloud maps\
 sample video preview:[无人驾驶课题](https://www.bilibili.com/video/BV11V4y1C7Hp/?spm_id_from=333.999.0.0) \
-[视频教程](https://www.bilibili.com/video/BV1LC4y1o7L6/#reply188159845568)   视频中“projection::UtmProjector projector(Origin({37.528444, 122.0780557}));“是当时建立地图时GPS获取的初始坐标。如果你需要用自己的地图做全局定位，记得在params.yaml文件中将initial_GPS_lat/lon改成你自己的GPS经纬度。
+[视频教程](https://www.bilibili.com/video/BV1LC4y1o7L6/#reply188159845568)   ~~视频中“projection::UtmProjector projector(Origin({37.528444, 122.0780557}));“是当时建立地图时GPS获取的初始坐标。如果你需要用自己的地图做全局定位，记得在params.yaml文件中将initial_GPS_lat/lon改成你自己的GPS经纬度。~~不再需要手动添加经纬度信息了。
 # Install
 System Require:\
 **Ubuntu(tested with 18.04)**\
@@ -58,11 +58,9 @@ After bag play end. ctrl + c to stop roslaunch process, check /home/mapDir, you 
 --SurfMap.pcd                          #whole surface points
 --trajectory.pcd                       #move trajectoies
 --transformations.pcd                  #tranform information(current/ori axis to global axis)
---keyMap                               #keyMaps, help to achieve relocation
----subCorner0.pcd                      #keyCornelFrame
----......
----subSurface0.pcd                     #keySurfaceFrame
----......
+--cornerVector.pcd                     #keyCornelFrame used to achieve relocation
+--surfVector.pcd                       #keySurfaceFrame used to achieve relocation
+--gpsPoints                            #gpsPoints used to achieve relocation
 ```
 **Congratulations**！bro, its hard for most people to get above steps done :)   \
 I highly recommended make a copy of final map( every time you runlaunch, map will be overwrite, may lost our final map)                                                  
