@@ -104,16 +104,16 @@ lio_sam:
 
 liauto:
   gpsOriTopic: "/fix"
-  laneletFilePath: "/limy/roscode/map_copy/new_lanelet2_maps.osm"              # 道路地图文件projection::UtmProjector projector(Origin({37.528444, 122.0780557}));
-  initial_GPS_lat: 37.528444                    # 建图时的第一个GPS纬度，GPS全局定位用，不用可不管
-  initial_GPS_lon: 122.0780557                  # 建图时的第一个GPS经度，GPS全局定位用，不用可不管
-  relocationKeyMapSize: 100                      # 重定位时搜索离当前GPS点最近的关键帧个数
-  relocationPickGap: 5
+  # laneletFilePath: "/limy/roscode/map_copy/new_lanelet2_maps.osm"              # 道路地图文件projection::UtmProjector projector(Origin({37.528444, 122.0780557}));
+  # initial_GPS_lat: 37.528444                    # 建图时的第一个GPS纬度，GPS全局定位用，不用可不管
+  # initial_GPS_lon: 122.0780557                  # 建图时的第一个GPS经度，GPS全局定位用，不用可不管
+  relocationKeyMapSize: 50                      # 重定位时搜索离当前GPS点最近的关键帧个数
+  relocationPickGap: 2
   icpSetMaxCorrespondenceDistance: 10000          # 重定位ICP算法中匹配点间的最大距离（真是值除以四，因为雷达缩小了4倍）
-  icpSetTransformationEpsilon: 1.0e-6           # 当转换矩阵的变化小于此阈值时，ICP算法的迭代过程将终止。
+  icpSetTransformationEpsilon: 1.0e-16           # 当转换矩阵的变化小于此阈值时，ICP算法的迭代过程将终止。
   icpSetEuclideanFitnessEpsilon: 1.0e-6            # 当ICP算法将源点云变换到目标点云的均方误差小于 SetEuclideanFitnessEpsilon 时，ICP算法将停止迭代
-  icpsetMaximumIterations: 500
-  icpSetRANSACIterations: 50
+  icpsetMaximumIterations: 100
+  icpSetRANSACIterations: 0
   useIcp: 0                                     # 使用ICP：0还是NDT：1
   ndtTransformationEpsilon: 100                 # ndt 匹配点间的最大距离 
   ndtSetStepSize: 0.001                           # ndt 

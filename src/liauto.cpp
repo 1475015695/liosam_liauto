@@ -39,6 +39,7 @@ vector<double> transformDelay;
 class liauto :public ParamServer
 {
 public:
+    const double R = 6371000; // 地球的平均半径（米）
     ros::Subscriber subCloud;
     ros::Subscriber subGPS;
     ros::Subscriber subInitPose;
@@ -327,6 +328,8 @@ public:
 
         ifs.close();
     }
+
+    
     
     void readkeyMap()
     {
@@ -337,6 +340,10 @@ public:
         pcl::io::loadPCDFile(savePCDDirectory+"gpsPoints.pcd",*gpsPoints);
         ROS_INFO("\033[33;40;1m----> recordGpsPoints num:%d\033[0m",gpsPoints->points.size());
         kdtreeRecordGpsPoints->setInputCloud(gpsPoints);
+        // for(int i=0;i<gpsPoints->size();i++)
+        // {
+        //     cout<<i<<": "<<gpsPoints->points[i].x<<" "<<gpsPoints->points[i].y<<" "<<gpsPoints->points[i].z<<endl;
+        // }
 
 
         loadPointCloudVector(cornerVector,savePCDDirectory+"cornerVector");
@@ -421,6 +428,7 @@ public:
     {
         return pcl::getTransformation(transformIn[3], transformIn[4], transformIn[5], transformIn[0], transformIn[1], transformIn[2]);
     }
+
 
 
     void laserCloudInfoHandler(const lio_sam::cloud_infoConstPtr& msgIn)
@@ -528,6 +536,23 @@ public:
 
         // }
     }
+
+    // 将度转换为弧度
+    double toRadians(double degrees) {
+        return degrees * M_PI / 180.0;
+    }
+
+    pcl::PointXYZ latLongAltToXYZ(double latitude, double longitude, double altitude) {
+        double latRad = toRadians(latitude);
+        double lonRad = toRadians(longitude);
+        pcl::PointXYZ p;
+        
+        p.x = (R + altitude) * cos(latRad) * cos(lonRad);
+        p.y = (R + altitude) * cos(latRad) * sin(lonRad);
+        p.z = (R + altitude) * sin(latRad);
+        return p;
+    }
+
     //原始GPS数据，没经过滤波
     void OriGpsHandler(const sensor_msgs::NavSatFix::ConstPtr& gpsMsg)
     {
@@ -564,9 +589,7 @@ public:
             // currGpsPath.points.push_back(pointVisual);
             // pubCurrGpsPath.publish(currGpsPath);
 
-            currGpsPoint.x=gpsMsg->latitude;
-            currGpsPoint.y=gpsMsg->longitude;
-            currGpsPoint.z=gpsMsg->altitude;
+            currGpsPoint=latLongAltToXYZ(gpsMsg->latitude,gpsMsg->longitude,gpsMsg->altitude);
 
             gpsVaild=true;
             currGpsTime=gpsMsg->header.stamp.toSec();

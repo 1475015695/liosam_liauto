@@ -82,7 +82,7 @@ class mapOptimization : public ParamServer
 {
 
 public:
-
+    const double R = 6371000; // 地球的平均半径（米）
     // gtsam
     NonlinearFactorGraph gtSAMgraph;
     Values initialEstimate;
@@ -1994,6 +1994,25 @@ public:
         aLoopIsClosed = true;
     }
 
+    
+    
+
+    // 将度转换为弧度
+    double toRadians(double degrees) {
+        return degrees * M_PI / 180.0;
+    }
+
+    pcl::PointXYZ latLongAltToXYZ(double latitude, double longitude, double altitude) {
+        double latRad = toRadians(latitude);
+        double lonRad = toRadians(longitude);
+        pcl::PointXYZ p;
+        
+        p.x = (R + altitude) * cos(latRad) * cos(lonRad);
+        p.y = (R + altitude) * cos(latRad) * sin(lonRad);
+        p.z = (R + altitude) * sin(latRad);
+        return p;
+    }
+    
     /**
      * 设置当前帧为关键帧并执行因子图优化
      * 1、计算当前帧与前一帧位姿变换，如果变化太小，不设为关键帧，反之设为关键帧
@@ -2062,9 +2081,10 @@ public:
         }
         else
         {
-            pcl::PointXYZ gp(oriGpsMsgs.back().latitude,oriGpsMsgs.back().longitude,oriGpsMsgs.back().altitude);
+            // pcl::PointXYZ gp(oriGpsMsgs.back().latitude*100.0,oriGpsMsgs.back().longitude*100.0,oriGpsMsgs.back().altitude*100.0);
             // pcl::PointXYZ gp(gpsQueue.back().pose.pose.position.x,gpsQueue.back().pose.pose.position.y,gpsQueue.back().pose.pose.position.z);
-            gpsPoints->push_back(gp);
+            gpsPoints->push_back(latLongAltToXYZ(oriGpsMsgs.back().latitude,oriGpsMsgs.back().longitude,oriGpsMsgs.back().altitude));
+
         }
         
 
