@@ -20,7 +20,8 @@
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 #include <Eigen/Dense>
-
+#include <termios.h>            //termios, TCSANOW, ECHO, ICANON
+#include <unistd.h>     //STDIN_FILENO
 
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
 #include <pcl/registration/ndt.h>
@@ -34,12 +35,16 @@ using namespace lanelet;
 using namespace std;
 
 
+
+
+
 vector<double> transformDelay;
 
 class liauto :public ParamServer
 {
 public:
     const double R = 6371000; // 地球的平均半径（米）
+    char key;
     ros::Subscriber subCloud;
     ros::Subscriber subGPS;
     ros::Subscriber subInitPose;
@@ -87,7 +92,7 @@ public:
     ros::Publisher pubNavsatPath;
     
     pcl::PointXYZ currGpsPoint;
-    bool gpsVaild=false;
+    bool gpsValid=false;
     ros::Subscriber subCurrLidarScan;
     std::deque<sensor_msgs::PointCloud2> lidarMsgDeque;
     ros::Subscriber subImu;
@@ -186,9 +191,12 @@ public:
         allocateMemory();
         loadCloudMap();
         readkeyMap();
+
         // loadLanelet2Map();
+        // thread keyThread(&liauto::readKeyThread,this);
+        // keyThread.detach();
         
-        while(!initialDone)
+        while(ros::ok()&&(!initialDone))
         {
             relocation();
             if(!initialDone)
@@ -300,7 +308,7 @@ public:
     {
         currGpsPoint.x=msg->pose.pose.position.x;
         currGpsPoint.y=msg->pose.pose.position.y;
-        gpsVaild=true;
+        gpsValid=true;
     }
     template <typename PointType>
     void loadPointCloudVector(std::vector<pcl::PointCloud<PointType>>& clouds, const std::string& filename) {
@@ -522,7 +530,7 @@ public:
         //     currGpsPoint.y=gpsMsg->pose.pose.position.y;
         //     currGpsPoint.z=gpsMsg->pose.pose.position.z;
             
-        //     // gpsVaild=true;
+        //     // gpsValid=true;
         //     currGpsTime=gpsMsg->header.stamp.toSec();
 
 
@@ -591,7 +599,7 @@ public:
 
             currGpsPoint=latLongAltToXYZ(gpsMsg->latitude,gpsMsg->longitude,gpsMsg->altitude);
 
-            gpsVaild=true;
+            gpsValid=true;
             currGpsTime=gpsMsg->header.stamp.toSec();
 
         }
@@ -928,11 +936,16 @@ public:
     
     void relocation()
     {
-        while(!gpsVaild)
+        ros::Rate rate(2); // 2 Hz
+        while (ros::ok() && !gpsValid)
         {
-            cout<<"\033[33;40;1mcurrent GPS signal bad. "<<"GPS position_covariance: \033[0m"<<oriGpsPoseConv<<endl;
-            ros::Duration(0.5).sleep();
+            cout << "\033[33;40;1mcurrent GPS signal bad. " << "GPS position_covariance: \033[0m" << oriGpsPoseConv << endl;
             ros::spinOnce();
+            rate.sleep();
+        }
+        if(!ros::ok())
+        {
+            return;
         }
         cout<<"\033[AmGPS valid\033[0m"<<endl;
         //找到离当前gps点最近的轨迹点，把点云变换到该轨迹，再提取该轨迹附近50m的点云地图，和当前扫描做icp配准
@@ -946,11 +959,11 @@ public:
 
         
 
-        while(laserCloudCornerLast->size()==0)
+        while(ros::ok() && laserCloudCornerLast->size()==0)
         {
             cout<<"\033[33;40;1mno lidar scan\033[0m"<<endl;
-            ros::Duration(0.5).sleep();
             ros::spinOnce();
+            rate.sleep();
         }
         cout<<"\033[Amlidar scan ok\033[0m"<<endl;
 
@@ -987,88 +1000,87 @@ public:
             {
                 i=trajPoint->points.size();
             }
-            if(1)
+
+            geometry_msgs::Point pointVisual;
+            pointVisual.x=trajPoint->points[i].x;
+            pointVisual.y=trajPoint->points[i].y;
+            pointVisual.z=trajPoint->points[i].z;
+            currGpsPath.points.push_back(pointVisual);
+            pubCurrGpsPath.publish(currGpsPath);
+
+            float* trans=new float[6];
+            float score=-1;
+            // float tempTrans[6];
+            // for(int k=0;k<6;k++)
+            // {
+            //     tempTrans[k]=transformTobeMapped[k];
+            // }
+            target->points.clear();
+            *target+=pointxyzi_to_pointxyz(cornerVector[i]);
+            *target+=pointxyzi_to_pointxyz(surfVector[i]);
+
+            sensor_msgs::PointCloud2 subMap;
+            pcl::toROSMsg(*target,subMap);
+            subMap.header.frame_id="/map";
+            subMap.header.stamp=ros::Time::now();
+            pubSubMaptobeMatched.publish(subMap);
+
+            
+            if(useIcp==0)
             {
-                geometry_msgs::Point pointVisual;
-                pointVisual.x=trajPoint->points[i].x;
-                pointVisual.y=trajPoint->points[i].y;
-                pointVisual.z=trajPoint->points[i].z;
-                currGpsPath.points.push_back(pointVisual);
-                pubCurrGpsPath.publish(currGpsPath);
-
-                float* trans=new float[6];
-                float score=-1;
-                // float tempTrans[6];
-                // for(int k=0;k<6;k++)
-                // {
-                //     tempTrans[k]=transformTobeMapped[k];
-                // }
-                target->points.clear();
-                *target+=pointxyzi_to_pointxyz(cornerVector[i]);
-                *target+=pointxyzi_to_pointxyz(surfVector[i]);
-
-                sensor_msgs::PointCloud2 subMap;
-                pcl::toROSMsg(*target,subMap);
-                subMap.header.frame_id="/map";
-                subMap.header.stamp=ros::Time::now();
-                pubSubMaptobeMatched.publish(subMap);
-
-                
-                if(useIcp==0)
-                {
-                    icpProcess(initScan,target,score,trans,matchResult);
-                }
-                else if(useIcp==1)
-                {
-                    ndtProcess(initScan,target,score,trans,matchResult);
-                }
-                else if(useIcp==2)
-                {
-                    gicpProcess(initScan,target,score,trans,matchResult);
-                }
-                
-                // for(int k=0;k<6;k++)
-                // {
-                //     tempTrans[k]+=trans[k];
-                // }
-                // pcl::PointCloud<pcl::PointXYZ>::Ptr testFinalTran(new pcl::PointCloud<pcl::PointXYZ>());
-                // Eigen::Affine3f T=trans2Affine3f(tempTrans);
-                // transformPointCloud(initScan,T,testFinalTran);
-                // *matchResult+=*testFinalTran;
-                // *matchResult+=*initScan;
-                // *matchResult+=*target;
-                // matchResult->width=matchResult->points.size();
-                // matchResult->height=1;
-                // pcl::io::savePCDFileASCII("/home/limy/roscode/tempdata/"+to_string(i)+"-"+to_string(score)+".pcd", *matchResult);
-                eachScore.push_back(score);
-                printf("index:%4d, trans: ",i);
-                for(int k=0;k<6;k++)
-                {
-                    // trans[k]+=transformTobeMapped[k];
-                    printf(" %6f ",trans[k]);
-                }
-                printf("\r\n");
-
-                // printf("index:%4d, tempTrans: ",i);
-                // for(int k=0;k<6;k++)
-                // {
-                //     printf(" %6f ",tempTrans[k]);
-                // }
-                printf("\r\n");
-                eachTrans.push_back(trans);
-                // Eigen::Affine3f testTrans=trans2Affine3f(tempTrans);
-                // pcl::PointCloud<pcl::PointXYZ>::Ptr testPointCloudOut(new pcl::PointCloud<pcl::PointXYZ>());
-                // transformPointCloud(initScan,testTrans,testPointCloudOut);
-
-                // sensor_msgs::PointCloud2 testMsg;
-                // pcl::toROSMsg(*testPointCloudOut,testMsg);
-                // testMsg.header.frame_id="/map";
-                // testMsg.header.stamp=ros::Time::now();
-
-                // pubTmpCloud.publish(testMsg);
-                
-                
+                icpProcess(initScan,target,score,trans,matchResult);
             }
+            else if(useIcp==1)
+            {
+                ndtProcess(initScan,target,score,trans,matchResult);
+            }
+            else if(useIcp==2)
+            {
+                gicpProcess(initScan,target,score,trans,matchResult);
+            }
+            
+            // for(int k=0;k<6;k++)
+            // {
+            //     tempTrans[k]+=trans[k];
+            // }
+            // pcl::PointCloud<pcl::PointXYZ>::Ptr testFinalTran(new pcl::PointCloud<pcl::PointXYZ>());
+            // Eigen::Affine3f T=trans2Affine3f(tempTrans);
+            // transformPointCloud(initScan,T,testFinalTran);
+            // *matchResult+=*testFinalTran;
+            // *matchResult+=*initScan;
+            // *matchResult+=*target;
+            // matchResult->width=matchResult->points.size();
+            // matchResult->height=1;
+            // pcl::io::savePCDFileASCII("/home/limy/roscode/tempdata/"+to_string(i)+"-"+to_string(score)+".pcd", *matchResult);
+            eachScore.push_back(score);
+            printf("index:%4d, trans: ",i);
+            for(int k=0;k<6;k++)
+            {
+                // trans[k]+=transformTobeMapped[k];
+                printf(" %6f ",trans[k]);
+            }
+            printf("\r\n");
+
+            // printf("index:%4d, tempTrans: ",i);
+            // for(int k=0;k<6;k++)
+            // {
+            //     printf(" %6f ",tempTrans[k]);
+            // }
+            printf("\r\n");
+            eachTrans.push_back(trans);
+            // Eigen::Affine3f testTrans=trans2Affine3f(tempTrans);
+            // pcl::PointCloud<pcl::PointXYZ>::Ptr testPointCloudOut(new pcl::PointCloud<pcl::PointXYZ>());
+            // transformPointCloud(initScan,testTrans,testPointCloudOut);
+
+            // sensor_msgs::PointCloud2 testMsg;
+            // pcl::toROSMsg(*testPointCloudOut,testMsg);
+            // testMsg.header.frame_id="/map";
+            // testMsg.header.stamp=ros::Time::now();
+
+            // pubTmpCloud.publish(testMsg);
+                
+                
+            
         }
         //找到得分最好的trans
         auto bastScore=min_element(eachScore.begin(),eachScore.end());
@@ -1108,6 +1120,28 @@ public:
 
     }
     
+
+    // void readKeyThread()
+    // {
+    //     while(ros::ok()&&((key=getchar())!='q'))
+    //     {
+    //         printf("%c\r\n",key);
+    //         if(key=='r' || key=='R')
+    //         {
+    //             initialDone=false;
+    //             gpsValid=false;
+    //             while(ros::ok()&&(!initialDone))
+    //             {
+    //                 relocation();
+    //                 if(!initialDone)
+    //                 {
+    //                     ROS_INFO("\033[1;37;41m----> %s\033[0m","Relocation failed, please move around the map rode");
+    //                 }
+    //             }
+    //         }
+    //         key='.';
+    //     }
+    // }
     /**
      * 当前激光帧角点寻找局部map匹配点
      * 1、更新当前帧位姿，将当前帧角点坐标变换到map系下，在局部map中查找5个最近点，距离小于1m，且5个点构成直线（用距离中心点的协方差矩阵，特征值进行判断），则认为匹配上了
@@ -1544,6 +1578,27 @@ int main(int argc, char** argv)
     ROS_INFO("\033[1;32m----> LiAuto Started.\033[0m");
 
     ros::spin();
+
+    // static struct termios oldt, newt;
+
+    // /*tcgetattr gets the parameters of the current terminal
+    // STDIN_FILENO will tell tcgetattr that it should write the settings
+    // of stdin to oldt*/
+    // tcgetattr( STDIN_FILENO, &oldt);
+    // /*now the settings will be copied*/
+    // newt = oldt;
+
+    // /*ICANON normally takes care that one line at a time will be processed
+    // that means it will return if it sees a "\n" or an EOF or an EOL*/
+    // newt.c_lflag &= ~(ICANON);          
+
+    // /*Those new settings will be set to STDIN
+    // TCSANOW tells tcsetattr to change attributes immediately. */
+    // tcsetattr( STDIN_FILENO, TCSANOW, &newt);
+    
+    // ros::spin();
+    // /*restore the old settings*/
+    // tcsetattr( STDIN_FILENO, TCSANOW, &oldt);
 
 
   return 0;
