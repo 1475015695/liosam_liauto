@@ -156,6 +156,7 @@ public:
     string laneletFilePath;
     string gpsOriTopic;
     int relocationKeyMapSize;
+    int relocationRotateGap;
     float scanToMapGap;
     float turnScale;
     int testTorque;
@@ -343,6 +344,7 @@ public:
         nh.param<float>("liauto/miniDistance",miniDistance,15);
         nh.param<float>("liauto/initial_GPS_lat",initial_GPS_lat,37.528444);
         nh.param<float>("liauto/initial_GPS_lon",initial_GPS_lon,122.0780557);
+        nh.param<int>("liauto/relocationRotateGap",relocationRotateGap,4);
         usleep(100);
     }
 
