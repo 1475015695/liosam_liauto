@@ -118,17 +118,17 @@ roslaunch lio_sam run_ori.launch
 rosbag play path/to/your/rosbag.bag
 ```
 
-播放结束后，按 `Ctrl + C` 停止 `roslaunch`。随后查看 `/home/mapDir`，你会看到多个 `.pcd` 文件：
+播放结束后，按 `Ctrl + C` 停止 `roslaunch`。随后查看 `/home/mapDir`，你会看到多个 `.bin` 文件：
 
 ```text
 -mapDir
---CornerMap.pcd                        # 全部角点云
---GlobalMap.pcd                        # 全部表面点和角点
---SurfMap.pcd                          # 全部表面点云
---trajectory.pcd                       # 运动轨迹
---transformations.pcd                  # 坐标转换信息
---cornerVector.pcd                     # 重定位使用的关键角点帧
---surfVector.pcd                       # 重定位使用的关键表面帧
+--CornerMap.bin                        # 全部角点云
+--GlobalMap.bin                        # 全部表面点和角点
+--SurfMap.bin                          # 全部表面点云
+--trajectory.bin                       # 运动轨迹
+--transformations.bin                  # 坐标转换信息
+--cornerVector.bin                     # 重定位使用的关键角点帧
+--surfVector.bin                       # 重定位使用的关键表面帧
 --gpsPoints                            # 重定位使用的 GPS 点
 ```
 
